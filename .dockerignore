@@ -1,0 +1,11 @@
+.git
+.idea
+.mvn/wrapper/maven-wrapper.jar
+target
+*.iml
+*.log
+.DS_Store
+AI_USAGE.md
+DECISIONS.md
+SPEC.md
+src/docs
