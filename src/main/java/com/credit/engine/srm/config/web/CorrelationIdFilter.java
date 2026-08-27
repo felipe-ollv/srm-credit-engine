@@ -1,4 +1,4 @@
-package com.credit.engine.srm.pricing.internal.adapter.in.web;
+package com.credit.engine.srm.config.web;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -27,7 +27,6 @@ public final class CorrelationIdFilter extends OncePerRequestFilter {
             HttpServletRequest request,
             HttpServletResponse response,
             FilterChain filterChain) throws ServletException, IOException {
-
         String correlationId = resolveCorrelationId(request.getHeader(HEADER_NAME));
         request.setAttribute(REQUEST_ATTRIBUTE, correlationId);
         response.setHeader(HEADER_NAME, correlationId);

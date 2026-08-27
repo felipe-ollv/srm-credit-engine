@@ -39,6 +39,10 @@ public class SecurityConfiguration {
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/pricing/simulations")
                         .hasAnyRole("OPERATOR", "ADMIN")
+                        .requestMatchers("/api/v1/assignors", "/api/v1/assignors/**")
+                        .hasAnyRole("OPERATOR", "ADMIN")
+                        .requestMatchers("/api/v1/receivables", "/api/v1/receivables/**")
+                        .hasAnyRole("OPERATOR", "ADMIN")
                         .anyRequest().authenticated())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) ->
@@ -91,7 +95,7 @@ public class SecurityConfiguration {
     CorsConfigurationSource corsConfigurationSource(CorsProperties properties) {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(properties.allowedOrigins());
-        configuration.setAllowedMethods(List.of("POST", "OPTIONS"));
+        configuration.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
         configuration.setAllowedHeaders(List.of(
                 "Authorization", "Content-Type", "X-Correlation-Id"));
         configuration.setExposedHeaders(List.of("X-Correlation-Id"));
