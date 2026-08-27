@@ -1,5 +1,9 @@
 package com.credit.engine.srm;
 
+import com.credit.engine.srm.currency.internal.application.ExchangeRateProvider;
+import com.credit.engine.srm.shared.Currency;
+import com.credit.engine.srm.shared.ExchangeRate;
+import org.junit.jupiter.api.BeforeEach;
 import io.swagger.v3.oas.models.OpenAPI;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,7 +24,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.math.BigDecimal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.matchesPattern;
@@ -56,6 +62,17 @@ class SrmApplicationTests {
 	@Autowired
 	private MockMvc mockMvc;
 
+	@BeforeEach
+	void seedCurrentExchangeRate() {
+		jdbcTemplate.update("delete from exchange_rates");
+		jdbcTemplate.update("""
+				insert into exchange_rates
+				    (id, base_currency, quote_currency, rate, effective_at, captured_at)
+				values (?, 'USD', 'BRL', 5.4321, ?, ?)
+				""",
+				java.util.UUID.randomUUID(), asUtc(FIXED_NOW), asUtc(FIXED_NOW));
+	}
+
 	@Test
 	void contextLoadsWithPostgreSqlFlywayAndOpenApi() {
 		Integer appliedMigrations = jdbcTemplate.queryForObject(
@@ -63,7 +80,7 @@ class SrmApplicationTests {
 				Integer.class
 		);
 
-		assertThat(appliedMigrations).isEqualTo(2);
+		assertThat(appliedMigrations).isEqualTo(3);
 		assertThat(openApi.getInfo().getTitle()).isEqualTo("SRM Credit Engine API");
 		assertThat(openApi.getComponents().getSecuritySchemes()).containsKey("bearerAuth");
 	}
@@ -243,6 +260,69 @@ class SrmApplicationTests {
 	}
 
 	@Test
+	void shouldQueryAndRefreshPersistedExchangeRatesWithRequiredRoles() throws Exception {
+		jdbcTemplate.update("""
+				insert into exchange_rates
+				    (id, base_currency, quote_currency, rate, effective_at, captured_at)
+				values (?, 'USD', 'BRL', 9.9999, ?, ?)
+				""",
+				java.util.UUID.randomUUID(),
+				asUtc(FIXED_NOW.plusSeconds(60)),
+				asUtc(FIXED_NOW.plusSeconds(60)));
+
+		mockMvc.perform(get("/api/v1/exchange-rates/current")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.param("baseCurrency", "USD")
+					.param("quoteCurrency", "BRL"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.rate").value("5.4321"))
+				.andExpect(jsonPath("$.effectiveAt").value(FIXED_NOW.toString()));
+
+		mockMvc.perform(post("/api/v1/exchange-rates/refresh")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR"))))
+				.andExpect(status().isForbidden());
+
+		mockMvc.perform(post("/api/v1/exchange-rates/refresh")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.rate").value("5.5"));
+
+		Integer snapshots = jdbcTemplate.queryForObject(
+				"select count(*) from exchange_rates",
+				Integer.class);
+		assertThat(snapshots).isEqualTo(3);
+	}
+
+	@Test
+	void shouldReturnNotFoundForExpiredRateAndRequireAuthentication() throws Exception {
+		jdbcTemplate.update("delete from exchange_rates");
+		Instant expired = FIXED_NOW.minusSeconds(24 * 60 * 60 + 1);
+		jdbcTemplate.update("""
+				insert into exchange_rates
+				    (id, base_currency, quote_currency, rate, effective_at, captured_at)
+				values (?, 'USD', 'BRL', 5.4321, ?, ?)
+				""",
+				java.util.UUID.randomUUID(), asUtc(expired), asUtc(expired));
+
+		mockMvc.perform(get("/api/v1/exchange-rates/current")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.param("baseCurrency", "USD")
+					.param("quoteCurrency", "BRL"))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("FX_RATE_NOT_FOUND"));
+
+		mockMvc.perform(post("/api/v1/exchange-rates/refresh"))
+				.andExpect(status().isUnauthorized());
+
+		mockMvc.perform(get("/api/v1/exchange-rates/current")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.param("baseCurrency", "BRL")
+					.param("quoteCurrency", "BRL"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("REQUEST_INVALID"));
+	}
+
+	@Test
 	void shouldRequireAuthenticationAndRequiredRole() throws Exception {
 		String body = request("DUPLICATA_MERCANTIL", "100000.00", "2026-11-26", "BRL");
 
@@ -366,6 +446,8 @@ class SrmApplicationTests {
 				.andExpect(jsonPath("$.paths['/api/v1/assignors'].get").exists())
 				.andExpect(jsonPath("$.paths['/api/v1/receivables'].post").exists())
 				.andExpect(jsonPath("$.paths['/api/v1/receivables'].get").exists())
+				.andExpect(jsonPath("$.paths['/api/v1/exchange-rates/refresh'].post").exists())
+				.andExpect(jsonPath("$.paths['/api/v1/exchange-rates/current'].get").exists())
 				.andExpect(jsonPath("$.paths['/api/v1/pricing/simulations'].post.responses['503']").exists())
 				.andExpect(jsonPath("$.components.schemas.ApiProblem.properties.correlationId").exists())
 				.andExpect(jsonPath("$.components.schemas.ApiProblem.properties.fieldErrors").exists())
@@ -388,6 +470,10 @@ class SrmApplicationTests {
 				""".formatted(receivableType, faceValue, dueDate, paymentCurrency);
 	}
 
+	private static OffsetDateTime asUtc(Instant instant) {
+		return instant.atOffset(ZoneOffset.UTC);
+	}
+
 	@TestConfiguration(proxyBeanMethods = false)
 	static class FixedClockConfiguration {
 
@@ -395,6 +481,17 @@ class SrmApplicationTests {
 		@Primary
 		Clock fixedClock() {
 			return Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
+		}
+
+		@Bean
+		@Primary
+		ExchangeRateProvider testExchangeRateProvider() {
+			return () -> new ExchangeRate(
+					Currency.USD,
+					Currency.BRL,
+					new BigDecimal("5.5000"),
+					FIXED_NOW.minusSeconds(1),
+					FIXED_NOW);
 		}
 	}
 
