@@ -61,6 +61,17 @@ class ReceivableTest {
                 CREATED_AT))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("dueDate");
+
+        assertThatThrownBy(() -> Receivable.create(
+                ReceivableId.newId(),
+                AssignorId.newId(),
+                ReceivableType.DUPLICATA_MERCANTIL,
+                Money.of("100.00", Currency.BRL),
+                REGISTRATION_DATE.plusMonths(360).plusDays(1),
+                REGISTRATION_DATE,
+                CREATED_AT))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("360 months");
     }
 
     private static Receivable validReceivable() {

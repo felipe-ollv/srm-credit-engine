@@ -63,9 +63,137 @@ class SrmApplicationTests {
 				Integer.class
 		);
 
-		assertThat(appliedMigrations).isOne();
+		assertThat(appliedMigrations).isEqualTo(2);
 		assertThat(openApi.getInfo().getTitle()).isEqualTo("SRM Credit Engine API");
 		assertThat(openApi.getComponents().getSecuritySchemes()).containsKey("bearerAuth");
+	}
+
+	@Test
+	void shouldCreateAndSearchAssignorsAndReceivables() throws Exception {
+		mockMvc.perform(post("/api/v1/assignors")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+							{
+							  "document": "12.345.678/0001-95",
+							  "legalName": "Indústria Exemplo S.A."
+							}
+							"""))
+				.andExpect(status().isCreated())
+				.andExpect(header().string("Location", matchesPattern("/api/v1/assignors/[0-9a-f-]{36}")))
+				.andExpect(jsonPath("$.document").value("12345678000195"))
+				.andExpect(jsonPath("$.legalName").value("Indústria Exemplo S.A."));
+
+		java.util.UUID assignorId = jdbcTemplate.queryForObject(
+				"select id from assignors where document = ?",
+				java.util.UUID.class,
+				"12345678000195");
+
+		mockMvc.perform(post("/api/v1/receivables")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+							{
+							  "assignorId": "%s",
+							  "type": "DUPLICATA_MERCANTIL",
+							  "faceValue": "100000.00",
+							  "dueDate": "2026-11-26"
+							}
+							""".formatted(assignorId)))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.assignorId").value(assignorId.toString()))
+				.andExpect(jsonPath("$.faceValue.amount").value("100000.00"))
+				.andExpect(jsonPath("$.faceValue.currency").value("BRL"))
+				.andExpect(jsonPath("$.status").value("AVAILABLE"));
+
+		mockMvc.perform(get("/api/v1/assignors")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.param("query", "Exemplo"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.content[0].document").value("12345678000195"))
+				.andExpect(jsonPath("$.totalElements").value(1));
+
+		mockMvc.perform(get("/api/v1/receivables")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.param("assignorId", assignorId.toString())
+					.param("status", "AVAILABLE"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.content[0].type").value("DUPLICATA_MERCANTIL"))
+				.andExpect(jsonPath("$.totalElements").value(1));
+	}
+
+	@Test
+	void shouldRejectDuplicateAssignorAndInvalidReceivable() throws Exception {
+		String assignor = """
+				{
+				  "document": "11.222.333/0001-81",
+				  "legalName": "Cedente Duplicado Ltda."
+				}
+				""";
+		mockMvc.perform(post("/api/v1/assignors")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(assignor))
+				.andExpect(status().isCreated());
+		mockMvc.perform(post("/api/v1/assignors")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(assignor))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("ASSIGNOR_DOCUMENT_ALREADY_EXISTS"));
+
+		mockMvc.perform(post("/api/v1/receivables")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+							{
+							  "assignorId": "00000000-0000-0000-0000-000000000001",
+							  "type": "CHEQUE_PRE_DATADO",
+							  "faceValue": "100.00",
+							  "dueDate": "2026-11-26"
+							}
+							"""))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("ASSIGNOR_NOT_FOUND"));
+
+		mockMvc.perform(post("/api/v1/assignors")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+							{
+							  "document": "12.345.678/0001-00",
+							  "legalName": "CNPJ Inválido Ltda."
+							}
+							"""))
+				.andExpect(status().isUnprocessableContent())
+				.andExpect(jsonPath("$.code").value("RECEIVABLE_RULE_VIOLATION"));
+	}
+
+	@Test
+	void shouldProtectAndValidateReceivablesEndpoints() throws Exception {
+		mockMvc.perform(get("/api/v1/assignors"))
+				.andExpect(status().isUnauthorized());
+		mockMvc.perform(get("/api/v1/assignors").with(jwt()))
+				.andExpect(status().isForbidden());
+		mockMvc.perform(get("/api/v1/receivables")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.param("size", "101"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("REQUEST_INVALID"));
+
+		mockMvc.perform(post("/api/v1/receivables")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+							{
+							  "assignorId": "00000000-0000-0000-0000-000000000001",
+							  "type": "CHEQUE_PRE_DATADO",
+							  "faceValue": 100.00,
+							  "dueDate": "2026-11-26"
+							}
+							"""))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("REQUEST_INVALID"));
 	}
 
 	@Test
@@ -234,6 +362,10 @@ class SrmApplicationTests {
 					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR"))))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.paths['/api/v1/pricing/simulations'].post").exists())
+				.andExpect(jsonPath("$.paths['/api/v1/assignors'].post").exists())
+				.andExpect(jsonPath("$.paths['/api/v1/assignors'].get").exists())
+				.andExpect(jsonPath("$.paths['/api/v1/receivables'].post").exists())
+				.andExpect(jsonPath("$.paths['/api/v1/receivables'].get").exists())
 				.andExpect(jsonPath("$.paths['/api/v1/pricing/simulations'].post.responses['503']").exists())
 				.andExpect(jsonPath("$.components.schemas.ApiProblem.properties.correlationId").exists())
 				.andExpect(jsonPath("$.components.schemas.ApiProblem.properties.fieldErrors").exists())
