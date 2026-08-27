@@ -1,0 +1,112 @@
+{
+  "realm": "srm-credit-engine",
+  "enabled": true,
+  "displayName": "SRM Credit Engine",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "loginWithEmailAllowed": false,
+  "roles": {
+    "realm": [
+      {
+        "name": "OPERATOR",
+        "description": "Operates receivables and pricing simulations"
+      },
+      {
+        "name": "ADMIN",
+        "description": "Administers the credit engine and exchange rates"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "srm-credit-engine-web",
+      "name": "SRM Credit Engine Web",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "clientAuthenticatorType": "client-secret",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "redirectUris": [
+        "http://localhost:4200/*"
+      ],
+      "webOrigins": [
+        "http://localhost:4200"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:4200/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "credit-engine-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "srm-credit-engine-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "operator",
+      "enabled": true,
+      "firstName": "Operador",
+      "lastName": "SRM",
+      "email": "operator@srm.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "operator123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["OPERATOR"]
+    },
+    {
+      "username": "admin",
+      "enabled": true,
+      "firstName": "Administrador",
+      "lastName": "SRM",
+      "email": "admin@srm.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["ADMIN"]
+    },
+    {
+      "username": "viewer",
+      "enabled": true,
+      "firstName": "Visualizador",
+      "lastName": "SRM",
+      "email": "viewer@srm.local",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "viewer123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": []
+    }
+  ]
+}

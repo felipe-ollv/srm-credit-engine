@@ -1,0 +1,6 @@
+{
+  "apiBaseUrl": "http://localhost:8080",
+  "keycloakUrl": "http://localhost:8081",
+  "keycloakRealm": "srm-credit-engine",
+  "keycloakClientId": "srm-credit-engine-web"
+}
