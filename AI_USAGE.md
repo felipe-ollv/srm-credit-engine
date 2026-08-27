@@ -1,6 +1,6 @@
 # Uso de IA no desenvolvimento
 
-> Documento vivo — última atualização: 26/08/2026.
+> Documento vivo — última atualização: 27/08/2026.
 
 ## 1. Como a IA foi utilizada
 
@@ -28,6 +28,7 @@ Este registro resume as interações relevantes; ele não reproduz o histórico 
 | Geração do SPEC | Materializar somente as decisões aprovadas, em português e sem iniciar a implementação. | Criação do [`SPEC.md`](./SPEC.md) como fonte de verdade funcional do v1. | Leitura integral do documento e confirmação explícita antes de avançar para arquitetura ou código. |
 | Domínio e motor de pricing | Implementar o plano aprovado com domínio puro, Strategy por tipo de recebível, fórmula única no `DiscountCalculator`, `DECIMAL128` e `HALF_EVEN`, sem JPA ou REST. | Shared kernel tipado, aggregates de recebível e liquidação, `PricingEngine`, `DuplicataPricingStrategy` e `PostDatedCheckPricingStrategy`. | Testes unitários das invariantes, verificação de fronteiras com Spring Modulith e aferição automatizada dos golden cases C1, C2 e C3. Os nomes finais das estratégias e a separação do calculator foram escolhidos pelo candidato antes da implementação. |
 | Exposição da simulação | Implementar a primeira fatia vertical em `POST /api/v1/pricing/simulations`, sem expor taxa, spread ou câmbio como entrada; proteger com JWT; usar valores financeiros textuais; padronizar erros e correlação. | Caso de uso e porta cambial, adapter configurado temporário, controller e DTOs internos, Resource Server, CORS explícito, Problem Details, métrica e documentação OpenAPI. | Testes com `Clock` fixo, golden cases pela rota HTTP, perfis `OPERATOR` e `ADMIN`, autenticação, CORS, correlação, indisponibilidade cambial, contrato OpenAPI e PostgreSQL real via Testcontainers. Uma coerção indevida de número JSON para texto foi rejeitada e corrigida antes da conclusão. |
+| Frontend e autenticação local | Implementar somente a tela correspondente ao contrato de simulação já existente, com Angular 21, tipagem estrita, Keycloak real, tokens somente em memória e sem criar telas fictícias para contratos futuros. | SPA responsiva em `frontend/`, formulário reativo, facade com debounce e cancelamento, integração HTTP tipada, autorização por perfil, realm Keycloak de demonstração e execução integrada pelo Docker Compose. | Lint, testes unitários e de componente, build de produção e Playwright contra API e Keycloak reais. Os E2E aferiram login, logout, autorização, responsividade e os golden cases C1, C2 e C3. |
 
 ## 3. Erros e correções
 
@@ -76,6 +77,28 @@ Na primeira versão do DTO da simulação, a IA declarou `faceValue` como `Strin
 - **Detecção:** um teste HTTP enviou o valor sem aspas e esperou `400 REQUEST_INVALID`; antes da correção, o MockMvc recebeu `200 OK` e uma simulação calculada.
 - **Correção:** foi adicionado um desserializador local que aceita exclusivamente o token JSON textual. O teste foi repetido e confirmou `400`; C1, C2 e C3 permaneceram verdes.
 - **Evidências:** [`PricingSimulationRequestDto.java`](./src/main/java/com/credit/engine/srm/pricing/internal/adapter/in/web/PricingSimulationRequestDto.java), [`StrictStringDeserializer.java`](./src/main/java/com/credit/engine/srm/pricing/internal/adapter/in/web/StrictStringDeserializer.java) e [`SrmApplicationTests.java`](./src/test/java/com/credit/engine/srm/SrmApplicationTests.java).
+
+### 3.5 Realm local incompleto detectado pelo E2E
+
+Na primeira composição do realm de demonstração, a IA criou os usuários locais sem preencher os atributos de e-mail esperados pelo fluxo inicial do Keycloak.
+
+- **Erro:** após autenticar, o Keycloak interrompia o redirecionamento para a SPA e exibia a etapa obrigatória `Update Account Information`.
+- **Impacto potencial:** nenhum perfil de demonstração conseguia concluir automaticamente o login usado nos testes e na avaliação local.
+- **Detecção:** o primeiro teste Playwright não encontrou a aplicação após enviar as credenciais; a captura da página mostrou o formulário adicional do Keycloak.
+- **Correção:** os usuários do realm receberam e-mails de demonstração e o import foi recriado antes da repetição do E2E.
+- **Evidências:** [`srm-credit-engine-realm.json`](./infra/keycloak/srm-credit-engine-realm.json) e [`pricing.spec.ts`](./frontend/e2e/pricing.spec.ts).
+
+O mesmo ciclo revelou que a política padrão `sslRequired=external` recusava o discovery OIDC no ambiente HTTP local com `HTTPS required`. Como o Compose usa exclusivamente o modo de desenvolvimento, o realm foi limitado a `sslRequired=none`; produção permanece fora desse perfil. A correção foi validada pelo discovery OIDC e pelos fluxos reais de login do Playwright.
+
+### 3.6 Healthcheck do frontend inconsistente com o listener
+
+Na validação final do Compose, a aplicação respondia pela porta publicada e todos os testes Playwright passavam, mas o container do frontend permanecia em `health: starting`.
+
+- **Erro:** o healthcheck gerado pela IA consultava `localhost:8080`, resolvido no container para um endereço no qual o Nginx não estava ouvindo.
+- **Impacto potencial:** orquestradores e dependências poderiam considerar indisponível uma aplicação funcional.
+- **Detecção:** `docker compose ps` mostrou o estado inconclusivo e `docker inspect` registrou tentativas repetidas com `Connection refused`.
+- **Correção:** o probe passou a consultar explicitamente `127.0.0.1:8080` e o container foi recriado.
+- **Evidência:** [`compose.yaml`](./compose.yaml).
 
 ## 4. O que não foi delegado
 
