@@ -42,7 +42,7 @@ release.properties
 *.iml
 *.iws
 *.ipr
-out/
+/out/
 
 # ===============================
 # macOS
