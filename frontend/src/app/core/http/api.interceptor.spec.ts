@@ -71,4 +71,20 @@ describe('apiInterceptor', () => {
     expect(isApiRequest('http://localhost:8080/api/v1/test', config.apiBaseUrl)).toBe(true);
     expect(isApiRequest('http://localhost:8080.evil.example/test', config.apiBaseUrl)).toBe(false);
   });
+
+  it('starts reauthentication when the API rejects the access token', async () => {
+    const receivedErrors: unknown[] = [];
+    http.get('http://localhost:8080/api/v1/test').subscribe({
+      error: (error: unknown) => receivedErrors.push(error),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const apiRequest = controller.expectOne('http://localhost:8080/api/v1/test');
+    apiRequest.flush({}, { status: 401, statusText: 'Unauthorized' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(keycloak.clearToken).toHaveBeenCalledOnce();
+    expect(keycloak.login).toHaveBeenCalledWith({ redirectUri: window.location.href });
+    expect(receivedErrors).toHaveLength(1);
+  });
 });

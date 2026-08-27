@@ -45,7 +45,7 @@ Frontend, com Node.js 20.19+, 22.12+ ou 24:
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm start
 ```
 
