@@ -1,9 +1,10 @@
 package com.credit.engine.srm.pricing.internal.config;
 
+import com.credit.engine.srm.currency.FindCurrentExchangeRateUseCase;
 import com.credit.engine.srm.pricing.InterestRate;
 import com.credit.engine.srm.pricing.PricingEngine;
 import com.credit.engine.srm.pricing.SimulatePricingUseCase;
-import com.credit.engine.srm.pricing.internal.adapter.out.fx.ConfiguredExchangeRateAdapter;
+import com.credit.engine.srm.pricing.internal.adapter.out.fx.PersistedExchangeRateAdapter;
 import com.credit.engine.srm.pricing.internal.application.CurrentExchangeRatePort;
 import com.credit.engine.srm.pricing.internal.application.MeteredPricingSimulationUseCase;
 import com.credit.engine.srm.pricing.internal.application.PricingSimulationService;
@@ -31,8 +32,8 @@ public class PricingModuleConfiguration {
     }
 
     @Bean
-    CurrentExchangeRatePort currentExchangeRatePort(PricingProperties properties, Clock clock) {
-        return new ConfiguredExchangeRateAdapter(properties.usdBrlRate(), clock);
+    CurrentExchangeRatePort currentExchangeRatePort(FindCurrentExchangeRateUseCase exchangeRates) {
+        return new PersistedExchangeRateAdapter(exchangeRates);
     }
 
     @Bean

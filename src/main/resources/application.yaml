@@ -52,7 +52,14 @@ springdoc:
 app:
   pricing:
     base-rate: ${PRICING_BASE_RATE:0.01}
-    usd-brl-rate: ${FX_USD_BRL_RATE:5.4321}
     business-zone: ${BUSINESS_ZONE:America/Sao_Paulo}
+  currency:
+    provider-base-url: ${FX_PROVIDER_BASE_URL:http://localhost:8082}
+    connect-timeout: ${FX_CONNECT_TIMEOUT:500ms}
+    read-timeout: ${FX_READ_TIMEOUT:500ms}
+    max-attempts: ${FX_MAX_ATTEMPTS:3}
+    retry-backoff: ${FX_RETRY_BACKOFF:250ms}
+    max-age: ${FX_MAX_AGE:24h}
+    bootstrap-enabled: ${FX_BOOTSTRAP_ENABLED:false}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}

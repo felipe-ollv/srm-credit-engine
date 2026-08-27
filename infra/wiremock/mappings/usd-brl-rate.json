@@ -1,0 +1,14 @@
+{
+  "request": {
+    "method": "GET",
+    "urlPath": "/rates/USD/BRL"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": "{\"baseCurrency\":\"USD\",\"quoteCurrency\":\"BRL\",\"rate\":\"5.4321\",\"effectiveAt\":\"{{now}}\"}",
+    "transformers": ["response-template"]
+  }
+}
