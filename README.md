@@ -18,6 +18,8 @@ Serviços locais:
 | Backend API | http://localhost:8080 |
 | OpenAPI | http://localhost:8080/swagger-ui.html |
 | Keycloak | http://localhost:8081 |
+
+As APIs atuais permitem simular pricing, cadastrar e consultar cedentes e cadastrar e consultar recebíveis. Todas usam Bearer JWT; valores monetários são representados como strings decimais no JSON.
 | PostgreSQL | localhost:5432 |
 
 O Swagger exige um Bearer token válido, assim como as rotas de negócio.

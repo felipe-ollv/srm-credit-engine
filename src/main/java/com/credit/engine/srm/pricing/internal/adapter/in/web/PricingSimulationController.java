@@ -1,5 +1,6 @@
 package com.credit.engine.srm.pricing.internal.adapter.in.web;
 
+import com.credit.engine.srm.config.web.ApiProblemResponseDto;
 import com.credit.engine.srm.pricing.PricingSimulationResult;
 import com.credit.engine.srm.pricing.SimulatePricingUseCase;
 import io.swagger.v3.oas.annotations.Operation;

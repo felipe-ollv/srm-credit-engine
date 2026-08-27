@@ -52,6 +52,9 @@ public final class Receivable {
         if (!dueDate.isAfter(registrationDate)) {
             throw new IllegalArgumentException("dueDate must be after registrationDate");
         }
+        if (dueDate.isAfter(registrationDate.plusMonths(360))) {
+            throw new IllegalArgumentException("dueDate cannot exceed 360 months from registrationDate");
+        }
 
         this.status = ReceivableStatus.AVAILABLE;
     }

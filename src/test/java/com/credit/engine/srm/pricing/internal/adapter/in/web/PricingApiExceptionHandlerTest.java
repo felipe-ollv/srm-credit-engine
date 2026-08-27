@@ -1,5 +1,7 @@
 package com.credit.engine.srm.pricing.internal.adapter.in.web;
 
+import com.credit.engine.srm.config.web.CorrelationIdFilter;
+import com.credit.engine.srm.config.web.GlobalApiExceptionHandler;
 import com.credit.engine.srm.pricing.internal.application.FxRateUnavailableException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -21,7 +23,7 @@ class PricingApiExceptionHandlerTest {
                 });
         MockMvc mockMvc = MockMvcBuilders
                 .standaloneSetup(controller)
-                .setControllerAdvice(new PricingApiExceptionHandler())
+                .setControllerAdvice(new GlobalApiExceptionHandler(), new PricingApiExceptionHandler())
                 .addFilters(new CorrelationIdFilter())
                 .build();
 
