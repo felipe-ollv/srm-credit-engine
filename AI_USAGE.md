@@ -30,6 +30,7 @@ Este registro resume as interações relevantes; ele não reproduz o histórico 
 | Exposição da simulação | Implementar a primeira fatia vertical em `POST /api/v1/pricing/simulations`, sem expor taxa, spread ou câmbio como entrada; proteger com JWT; usar valores financeiros textuais; padronizar erros e correlação. | Caso de uso e porta cambial, adapter configurado temporário, controller e DTOs internos, Resource Server, CORS explícito, Problem Details, métrica e documentação OpenAPI. | Testes com `Clock` fixo, golden cases pela rota HTTP, perfis `OPERATOR` e `ADMIN`, autenticação, CORS, correlação, indisponibilidade cambial, contrato OpenAPI e PostgreSQL real via Testcontainers. Uma coerção indevida de número JSON para texto foi rejeitada e corrigida antes da conclusão. |
 | Frontend e autenticação local | Implementar somente a tela correspondente ao contrato de simulação já existente, com Angular 21, tipagem estrita, Keycloak real, tokens somente em memória e sem criar telas fictícias para contratos futuros. | SPA responsiva em `frontend/`, formulário reativo, facade com debounce e cancelamento, integração HTTP tipada, autorização por perfil, realm Keycloak de demonstração e execução integrada pelo Docker Compose. | Lint, testes unitários e de componente, build de produção e Playwright contra API e Keycloak reais. Os E2E aferiram login, logout, autorização, responsividade e os golden cases C1, C2 e C3. |
 | Cadastro persistente | Implementar cedentes e recebíveis como primeira branch sequencial, mantendo domínio sem Spring, entidades JPA nos adapters, CNPJ verificável, valores financeiros textuais e paginação sem expor tipos do framework. | Migration incremental, APIs protegidas, contratos de aplicação, adapters PostgreSQL e Problem Details compartilhado. | Testes de CNPJ e aggregates, PostgreSQL real via Testcontainers, validação do OpenAPI e `ApplicationModules.verify()`. |
+| Currency engine | Substituir o câmbio configurado por snapshots imutáveis no PostgreSQL, integrar um provedor HTTP mockado, aplicar timeout/retry e limitar o refresh a `ADMIN`. | Módulo `currency` hexagonal, migration V3, adapter HTTP, WireMock no Compose, APIs de consulta/refresh e integração do pricing à API pública de câmbio. | Testes unitários de vigência e retry, timeout HTTP reproduzível, PostgreSQL real via Testcontainers, autorização/OpenAPI, Compose saudável e consulta direta ao histórico Flyway e ao snapshot persistido. |
 
 ## 3. Erros e correções
 
@@ -77,7 +78,7 @@ Na primeira versão do DTO da simulação, a IA declarou `faceValue` como `Strin
 - **Impacto potencial:** clientes poderiam depender de um formato não documentado e transmitir valores financeiros como números JSON, sujeitos à representação numérica da linguagem cliente.
 - **Detecção:** um teste HTTP enviou o valor sem aspas e esperou `400 REQUEST_INVALID`; antes da correção, o MockMvc recebeu `200 OK` e uma simulação calculada.
 - **Correção:** foi adicionado um desserializador local que aceita exclusivamente o token JSON textual. O teste foi repetido e confirmou `400`; C1, C2 e C3 permaneceram verdes.
-- **Evidências:** [`PricingSimulationRequestDto.java`](./src/main/java/com/credit/engine/srm/pricing/internal/adapter/in/web/PricingSimulationRequestDto.java), [`StrictStringDeserializer.java`](./src/main/java/com/credit/engine/srm/pricing/internal/adapter/in/web/StrictStringDeserializer.java) e [`SrmApplicationTests.java`](./src/test/java/com/credit/engine/srm/SrmApplicationTests.java).
+- **Evidências:** [`PricingSimulationRequestDto.java`](./src/main/java/com/credit/engine/srm/pricing/internal/adapter/in/web/PricingSimulationRequestDto.java), [`StrictStringDeserializer.java`](./src/main/java/com/credit/engine/srm/config/web/StrictStringDeserializer.java) e [`SrmApplicationTests.java`](./src/test/java/com/credit/engine/srm/SrmApplicationTests.java).
 
 ### 3.5 Realm local incompleto detectado pelo E2E
 
@@ -110,6 +111,26 @@ Ao extrair correlação, Problem Details e desserialização estrita para uma in
 - **Detecção:** `ApplicationModules.verify()` listou cada acesso aos tipos não expostos.
 - **Correção:** `config.web` passou a ser uma named interface explícita e os módulos consumidores foram limitados a `config :: web`.
 - **Evidências:** [`package-info.java`](./src/main/java/com/credit/engine/srm/config/web/package-info.java), [`ModuleStructureTest.java`](./src/test/java/com/credit/engine/srm/ModuleStructureTest.java) e os `package-info.java` de `pricing` e `receivables`.
+
+### 3.8 Fixture cambial sem tipo temporal explícito
+
+Na primeira versão do teste integrado do currency engine, a IA inseriu o snapshot com `JdbcTemplate` passando objetos `Instant` diretamente aos parâmetros `TIMESTAMPTZ`.
+
+- **Erro:** o driver PostgreSQL não conseguiu inferir o tipo SQL de `Instant` no statement JDBC cru.
+- **Impacto potencial:** os 13 cenários integrados falharam durante a preparação do fixture, impedindo validar migration, segurança, APIs e golden cases, embora o código de produção já compilasse.
+- **Detecção:** `./mvnw test` com Testcontainers aplicou a V3 e então retornou `Não pode inferir um tipo SQL a ser usado para uma instância de java.time.Instant` em `seedCurrentExchangeRate`.
+- **Correção:** o fixture passou a converter explicitamente os instantes para `OffsetDateTime` em UTC antes do bind. A suíte integrada foi repetida e os 13 cenários passaram.
+- **Evidências:** [`SrmApplicationTests.java`](./src/test/java/com/credit/engine/srm/SrmApplicationTests.java) e [`V3__exchange_rates.sql`](./src/main/resources/db/migration/V3__exchange_rates.sql).
+
+### 3.9 Packages `adapter/out` ignorados pelo Git
+
+Na revisão final da branch, a IA comparou os arquivos usados na compilação com o índice Git e detectou que adapters essenciais não apareciam no diff.
+
+- **Erro:** a regra `out/` do `.gitignore`, destinada ao diretório de build da IDE, correspondia também a qualquer package hexagonal chamado `adapter/out`. Os adapters JPA de recebíveis já mergeados e os novos adapters de currency existiam localmente, mas permaneciam ignorados.
+- **Impacto potencial:** o projeto passava nos testes da máquina de desenvolvimento, porém um clone limpo não teria implementações exigidas pelo wiring Spring e falharia na compilação.
+- **Detecção:** `git check-ignore -v` apontou a regra e `git ls-tree -r HEAD` confirmou que nenhum arquivo sob `adapter/out` estava no commit mergeado.
+- **Correção:** a regra foi limitada a `/out/`, representando apenas o diretório de build na raiz, e todos os adapters de saída necessários passaram a ser versionados. A suíte completa foi repetida depois da correção.
+- **Evidências:** [`.gitignore`](./.gitignore), [`JpaReceivableRepositoryAdapter.java`](./src/main/java/com/credit/engine/srm/receivables/internal/adapter/out/persistence/JpaReceivableRepositoryAdapter.java) e [`JpaExchangeRateRepositoryAdapter.java`](./src/main/java/com/credit/engine/srm/currency/internal/adapter/out/persistence/JpaExchangeRateRepositoryAdapter.java).
 
 ## 4. O que não foi delegado
 

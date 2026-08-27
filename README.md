@@ -18,9 +18,14 @@ Serviços locais:
 | Backend API | http://localhost:8080 |
 | OpenAPI | http://localhost:8080/swagger-ui.html |
 | Keycloak | http://localhost:8081 |
-
-As APIs atuais permitem simular pricing, cadastrar e consultar cedentes e cadastrar e consultar recebíveis. Todas usam Bearer JWT; valores monetários são representados como strings decimais no JSON.
+| Provedor cambial mockado (WireMock) | http://localhost:8082 |
 | PostgreSQL | localhost:5432 |
+
+As APIs atuais permitem simular pricing, cadastrar e consultar cedentes e recebíveis, consultar a cotação vigente e solicitar sua atualização. Todas usam Bearer JWT; valores monetários são representados como strings decimais no JSON.
+
+- `GET /api/v1/exchange-rates/current` aceita `OPERATOR` e `ADMIN`.
+- `POST /api/v1/exchange-rates/refresh` aceita somente `ADMIN`.
+- O Compose inicia o WireMock e captura uma cotação USD/BRL no startup da API. O pricing em USD consulta exclusivamente snapshots persistidos com até 24 horas.
 
 O Swagger exige um Bearer token válido, assim como as rotas de negócio.
 
@@ -52,6 +57,8 @@ npm start
 ```
 
 O frontend carrega os endereços da API e do Keycloak por `config.json` antes de inicializar o Angular. No container, esse arquivo é gerado pelas variáveis `API_BASE_URL`, `KEYCLOAK_URL`, `KEYCLOAK_REALM` e `KEYCLOAK_CLIENT_ID`.
+
+A integração cambial usa `FX_PROVIDER_BASE_URL`, timeouts de conexão e leitura de 500 ms, três tentativas totais com backoff de 250 ms e vigência máxima de 24 horas. Esses valores podem ser sobrescritos pelas variáveis `FX_CONNECT_TIMEOUT`, `FX_READ_TIMEOUT`, `FX_MAX_ATTEMPTS`, `FX_RETRY_BACKOFF` e `FX_MAX_AGE`.
 
 ## Validação
 
