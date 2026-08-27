@@ -1,6 +1,13 @@
 spring:
   application:
     name: srm-credit-engine
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${JWT_ISSUER_URI:http://localhost:8081/realms/srm-credit-engine}
+          audiences:
+            - ${JWT_AUDIENCE:srm-credit-engine-api}
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/srm_credit_engine}
     username: ${SPRING_DATASOURCE_USERNAME:srm}
@@ -27,7 +34,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health
   endpoint:
     health:
       probes:
@@ -41,3 +48,11 @@ springdoc:
     path: /swagger-ui.html
     operations-sorter: alpha
     tags-sorter: alpha
+
+app:
+  pricing:
+    base-rate: ${PRICING_BASE_RATE:0.01}
+    usd-brl-rate: ${FX_USD_BRL_RATE:5.4321}
+    business-zone: ${BUSINESS_ZONE:America/Sao_Paulo}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}

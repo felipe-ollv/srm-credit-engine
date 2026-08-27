@@ -87,3 +87,14 @@ application-local.yaml
 application-secret.properties
 application-secret.yml
 application-secret.yaml
+
+# ===============================
+# Angular / Node.js
+# ===============================
+
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/

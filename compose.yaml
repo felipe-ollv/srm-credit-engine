@@ -25,17 +25,57 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/srm_credit_engine
       SPRING_DATASOURCE_USERNAME: srm
       SPRING_DATASOURCE_PASSWORD: srm
+      JWT_ISSUER_URI: http://localhost:8081/realms/srm-credit-engine
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/srm-credit-engine/protocol/openid-connect/certs
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
+      keycloak:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8080/actuator/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 20s
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.2
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HOSTNAME: http://localhost:8081
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./infra/keycloak/srm-credit-engine-realm.json:/opt/keycloak/data/import/srm-credit-engine-realm.json:ro
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      API_BASE_URL: http://localhost:8080
+      KEYCLOAK_URL: http://localhost:8081
+      KEYCLOAK_REALM: srm-credit-engine
+      KEYCLOAK_CLIENT_ID: srm-credit-engine-web
+    ports:
+      - "4200:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8080/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
 volumes:
   postgres-data:
