@@ -29,6 +29,7 @@ Este registro resume as interações relevantes; ele não reproduz o histórico 
 | Domínio e motor de pricing | Implementar o plano aprovado com domínio puro, Strategy por tipo de recebível, fórmula única no `DiscountCalculator`, `DECIMAL128` e `HALF_EVEN`, sem JPA ou REST. | Shared kernel tipado, aggregates de recebível e liquidação, `PricingEngine`, `DuplicataPricingStrategy` e `PostDatedCheckPricingStrategy`. | Testes unitários das invariantes, verificação de fronteiras com Spring Modulith e aferição automatizada dos golden cases C1, C2 e C3. Os nomes finais das estratégias e a separação do calculator foram escolhidos pelo candidato antes da implementação. |
 | Exposição da simulação | Implementar a primeira fatia vertical em `POST /api/v1/pricing/simulations`, sem expor taxa, spread ou câmbio como entrada; proteger com JWT; usar valores financeiros textuais; padronizar erros e correlação. | Caso de uso e porta cambial, adapter configurado temporário, controller e DTOs internos, Resource Server, CORS explícito, Problem Details, métrica e documentação OpenAPI. | Testes com `Clock` fixo, golden cases pela rota HTTP, perfis `OPERATOR` e `ADMIN`, autenticação, CORS, correlação, indisponibilidade cambial, contrato OpenAPI e PostgreSQL real via Testcontainers. Uma coerção indevida de número JSON para texto foi rejeitada e corrigida antes da conclusão. |
 | Frontend e autenticação local | Implementar somente a tela correspondente ao contrato de simulação já existente, com Angular 21, tipagem estrita, Keycloak real, tokens somente em memória e sem criar telas fictícias para contratos futuros. | SPA responsiva em `frontend/`, formulário reativo, facade com debounce e cancelamento, integração HTTP tipada, autorização por perfil, realm Keycloak de demonstração e execução integrada pelo Docker Compose. | Lint, testes unitários e de componente, build de produção e Playwright contra API e Keycloak reais. Os E2E aferiram login, logout, autorização, responsividade e os golden cases C1, C2 e C3. |
+| Cadastro persistente | Implementar cedentes e recebíveis como primeira branch sequencial, mantendo domínio sem Spring, entidades JPA nos adapters, CNPJ verificável, valores financeiros textuais e paginação sem expor tipos do framework. | Migration incremental, APIs protegidas, contratos de aplicação, adapters PostgreSQL e Problem Details compartilhado. | Testes de CNPJ e aggregates, PostgreSQL real via Testcontainers, validação do OpenAPI e `ApplicationModules.verify()`. |
 
 ## 3. Erros e correções
 
@@ -99,6 +100,16 @@ Na validação final do Compose, a aplicação respondia pela porta publicada e 
 - **Detecção:** `docker compose ps` mostrou o estado inconclusivo e `docker inspect` registrou tentativas repetidas com `Connection refused`.
 - **Correção:** o probe passou a consultar explicitamente `127.0.0.1:8080` e o container foi recriado.
 - **Evidência:** [`compose.yaml`](./compose.yaml).
+
+### 3.7 Fronteira web não exposta no Modulith
+
+Ao extrair correlação, Problem Details e desserialização estrita para uma infraestrutura web compartilhada, a IA permitiu inicialmente que `pricing` e `receivables` dependessem diretamente de tipos internos do módulo `config`.
+
+- **Erro:** declarar `config` como dependência permitida não torna automaticamente seus subpackages uma API pública do módulo.
+- **Impacto potencial:** a solução compilava, mas enfraquecia o encapsulamento e impedia a verificação estrutural da arquitetura.
+- **Detecção:** `ApplicationModules.verify()` listou cada acesso aos tipos não expostos.
+- **Correção:** `config.web` passou a ser uma named interface explícita e os módulos consumidores foram limitados a `config :: web`.
+- **Evidências:** [`package-info.java`](./src/main/java/com/credit/engine/srm/config/web/package-info.java), [`ModuleStructureTest.java`](./src/test/java/com/credit/engine/srm/ModuleStructureTest.java) e os `package-info.java` de `pricing` e `receivables`.
 
 ## 4. O que não foi delegado
 
