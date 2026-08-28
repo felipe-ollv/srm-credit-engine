@@ -1,6 +1,6 @@
 # Arquitetura do SRM Credit Engine
 
-Este documento apresenta a arquitetura da entrega Sênior. No estado atual, frontend de simulação, autenticação, pricing, cedentes, recebíveis, currency engine, liquidação em lote e reporting estão implementados; telas operacionais adicionais e seus artefatos operacionais permanecem planejados. Os diagramas usam a notação C4 nos níveis de contexto e contêiner e detalham, em seguida, os módulos e as fronteiras hexagonais do backend.
+Este documento apresenta a arquitetura implementada na entrega Sênior. Frontend, autenticação, pricing, cedentes, recebíveis, currency engine, liquidação em lote, reporting e observabilidade estão presentes e executáveis pelo Docker Compose. Os únicos elementos externos são o Keycloak e o provedor cambial mockado, ambos incluídos no ambiente local. Os diagramas usam C4 nos níveis de contexto e contêiner e detalham as fronteiras hexagonais do backend.
 
 ## C4 — Nível 1: contexto do sistema
 
@@ -128,3 +128,80 @@ flowchart LR
 5. Dependências entre módulos passam apenas por APIs públicas verificadas pelo Spring Modulith.
 6. O motor financeiro usa `BigDecimal`; arredondamento e conversão seguem o `SPEC.md`.
 7. Logs estruturados, correlation ID e métricas atravessam as fronteiras como preocupações operacionais, sem contaminar o domínio.
+
+## Modelo de dados implementado
+
+```mermaid
+erDiagram
+    ASSIGNORS ||--o{ RECEIVABLES : possui
+    RECEIVABLES ||--o| SETTLEMENTS : liquidado_por
+    SETTLEMENT_BATCHES ||--o{ SETTLEMENTS : agrupa
+    SETTLEMENT_BATCHES ||--|| SETTLEMENT_IDEMPOTENCY : identificado_por
+
+    ASSIGNORS {
+        uuid id PK
+        varchar document UK
+        varchar legal_name
+        timestamptz created_at
+    }
+    RECEIVABLES {
+        uuid id PK
+        uuid assignor_id FK
+        varchar type
+        numeric_19_2 face_value
+        date due_date
+        date registration_date
+        varchar status
+        uuid settlement_id FK
+        timestamptz settled_at
+        bigint version
+        timestamptz created_at
+    }
+    EXCHANGE_RATES {
+        uuid id PK
+        varchar base_currency
+        varchar quote_currency
+        numeric_19_10 rate
+        timestamptz effective_at
+        timestamptz captured_at
+    }
+    SETTLEMENT_BATCHES {
+        uuid id PK
+        varchar status
+        timestamptz requested_at
+        timestamptz completed_at
+    }
+    SETTLEMENTS {
+        uuid id PK
+        uuid batch_id FK
+        int item_index UK
+        uuid receivable_id FK_UK
+        uuid assignor_id FK
+        numeric_19_2 face_value
+        numeric_19_2 present_value
+        numeric_19_2 discount
+        numeric_19_2 payment_amount
+        varchar payment_currency
+        numeric_19_10 base_rate
+        numeric_19_10 spread
+        numeric_19_10 exchange_rate
+        timestamptz settled_at
+    }
+    SETTLEMENT_IDEMPOTENCY {
+        varchar idempotency_key PK
+        varchar request_hash
+        uuid batch_id FK_UK
+        varchar status
+        text response_payload
+        timestamptz created_at
+        timestamptz completed_at
+    }
+```
+
+### Integridade e índices
+
+- Dinheiro usa `NUMERIC(19,2)` e taxas usam `NUMERIC(19,10)`; checks validam valores, enums, prazos, timestamps e coerência do snapshot cambial.
+- CNPJ e liquidação por recebível são únicos. A FK circular entre recebível e liquidação é diferível para permitir a gravação atômica do snapshot e da transição.
+- `receivables.version` implementa locking otimista; a unicidade de `settlements.receivable_id` é a defesa final contra duplicidade.
+- A idempotência associa chave única, hash do payload, lote e resposta persistida.
+- Índices cobrem seleção da cotação vigente, recebíveis disponíveis e extrato por período, cedente e moeda. A definição normativa está nas migrations [`V2`](../main/resources/db/migration/V2__assignors_and_receivables.sql), [`V3`](../main/resources/db/migration/V3__exchange_rates.sql), [`V4`](../main/resources/db/migration/V4__settlement_batches.sql) e [`V5`](../main/resources/db/migration/V5__settlement_reporting_indexes.sql).
