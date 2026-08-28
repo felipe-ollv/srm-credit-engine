@@ -76,4 +76,10 @@ class ReceivableJpaEntity {
         this.status = status;
         this.createdAt = createdAt;
     }
+
+    void applySettlement(UUID newSettlementId, Instant newSettledAt) {
+        this.status = ReceivableStatus.SETTLED;
+        this.settlementId = newSettlementId;
+        this.settledAt = newSettledAt;
+    }
 }

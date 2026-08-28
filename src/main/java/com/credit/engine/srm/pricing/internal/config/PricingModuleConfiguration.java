@@ -2,10 +2,12 @@ package com.credit.engine.srm.pricing.internal.config;
 
 import com.credit.engine.srm.currency.FindCurrentExchangeRateUseCase;
 import com.credit.engine.srm.pricing.InterestRate;
+import com.credit.engine.srm.pricing.PriceReceivableUseCase;
 import com.credit.engine.srm.pricing.PricingEngine;
 import com.credit.engine.srm.pricing.SimulatePricingUseCase;
 import com.credit.engine.srm.pricing.internal.adapter.out.fx.PersistedExchangeRateAdapter;
 import com.credit.engine.srm.pricing.internal.application.CurrentExchangeRatePort;
+import com.credit.engine.srm.pricing.internal.application.AuthoritativePricingService;
 import com.credit.engine.srm.pricing.internal.application.MeteredPricingSimulationUseCase;
 import com.credit.engine.srm.pricing.internal.application.PricingSimulationService;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -29,6 +31,16 @@ public class PricingModuleConfiguration {
     @Bean
     PricingEngine pricingEngine() {
         return PricingEngine.standard();
+    }
+
+    @Bean
+    PriceReceivableUseCase priceReceivableUseCase(
+            PricingEngine pricingEngine,
+            PricingProperties properties) {
+        return new AuthoritativePricingService(
+                pricingEngine,
+                new InterestRate(properties.baseRate()),
+                properties.businessZone());
     }
 
     @Bean

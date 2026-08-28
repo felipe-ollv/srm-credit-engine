@@ -10,10 +10,14 @@ import com.credit.engine.srm.shared.Currency;
 import com.credit.engine.srm.shared.Money;
 import com.credit.engine.srm.shared.PageResult;
 import com.credit.engine.srm.shared.ReceivableId;
+import com.credit.engine.srm.shared.SettlementId;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
+
+import java.time.Instant;
+import java.util.Optional;
 
 @Repository
 class JpaReceivableRepositoryAdapter implements ReceivableRepository {
@@ -36,6 +40,19 @@ class JpaReceivableRepositoryAdapter implements ReceivableRepository {
                 receivable.status(),
                 receivable.createdAt()));
         return toView(saved);
+    }
+
+    @Override
+    public Optional<Receivable> findById(ReceivableId receivableId) {
+        return repository.findById(receivableId.value()).map(JpaReceivableRepositoryAdapter::toDomain);
+    }
+
+    @Override
+    public void markSettled(Receivable receivable, SettlementId settlementId, Instant settledAt) {
+        ReceivableJpaEntity entity = repository.findById(receivable.id().value()).orElseThrow();
+        receivable.markSettled(settlementId, settledAt);
+        entity.applySettlement(settlementId.value(), settledAt);
+        repository.saveAndFlush(entity);
     }
 
     @Override
@@ -66,5 +83,19 @@ class JpaReceivableRepositoryAdapter implements ReceivableRepository {
                 entity.registrationDate,
                 ReceivableStatusView.valueOf(entity.status.name()),
                 entity.createdAt);
+    }
+
+    private static Receivable toDomain(ReceivableJpaEntity entity) {
+        return Receivable.restore(
+                new ReceivableId(entity.id),
+                new AssignorId(entity.assignorId),
+                entity.type,
+                new Money(entity.faceValue, Currency.BRL),
+                entity.dueDate,
+                entity.registrationDate,
+                entity.createdAt,
+                entity.status,
+                entity.settlementId == null ? null : new SettlementId(entity.settlementId),
+                entity.settledAt);
     }
 }

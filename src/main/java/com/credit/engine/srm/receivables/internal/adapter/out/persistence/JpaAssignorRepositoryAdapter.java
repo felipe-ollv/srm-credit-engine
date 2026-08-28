@@ -10,6 +10,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 
+import java.util.Optional;
+
 @Repository
 class JpaAssignorRepositoryAdapter implements AssignorRepository {
 
@@ -37,6 +39,11 @@ class JpaAssignorRepositoryAdapter implements AssignorRepository {
     @Override
     public boolean existsById(AssignorId id) {
         return repository.existsById(id.value());
+    }
+
+    @Override
+    public Optional<AssignorView> findById(AssignorId id) {
+        return repository.findById(id.value()).map(JpaAssignorRepositoryAdapter::toView);
     }
 
     @Override

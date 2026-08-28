@@ -15,6 +15,8 @@ public record Settlement(
         SettlementId id,
         ReceivableId receivableId,
         AssignorId assignorId,
+        String assignorDocument,
+        String assignorLegalName,
         ReceivableType receivableType,
         LocalDate dueDate,
         PricingResult pricingResult,
@@ -24,10 +26,16 @@ public record Settlement(
         Objects.requireNonNull(id, "id is required");
         Objects.requireNonNull(receivableId, "receivableId is required");
         Objects.requireNonNull(assignorId, "assignorId is required");
+        Objects.requireNonNull(assignorDocument, "assignorDocument is required");
+        Objects.requireNonNull(assignorLegalName, "assignorLegalName is required");
         Objects.requireNonNull(receivableType, "receivableType is required");
         Objects.requireNonNull(dueDate, "dueDate is required");
         Objects.requireNonNull(pricingResult, "pricingResult is required");
         Objects.requireNonNull(settledAt, "settledAt is required");
+
+        if (!assignorDocument.matches("^[0-9]{14}$") || assignorLegalName.isBlank()) {
+            throw new IllegalArgumentException("settlement requires a valid assignor snapshot");
+        }
 
         if (receivableType != pricingResult.receivableType()) {
             throw new IllegalArgumentException("settlement type must match pricing result type");
@@ -44,6 +52,8 @@ public record Settlement(
             SettlementId id,
             ReceivableId receivableId,
             AssignorId assignorId,
+            String assignorDocument,
+            String assignorLegalName,
             ReceivableType receivableType,
             LocalDate dueDate,
             PricingResult pricingResult,
@@ -53,6 +63,8 @@ public record Settlement(
                 id,
                 receivableId,
                 assignorId,
+                assignorDocument,
+                assignorLegalName,
                 receivableType,
                 dueDate,
                 pricingResult,

@@ -31,6 +31,7 @@ Este registro resume as interações relevantes; ele não reproduz o histórico 
 | Frontend e autenticação local | Implementar somente a tela correspondente ao contrato de simulação já existente, com Angular 21, tipagem estrita, Keycloak real, tokens somente em memória e sem criar telas fictícias para contratos futuros. | SPA responsiva em `frontend/`, formulário reativo, facade com debounce e cancelamento, integração HTTP tipada, autorização por perfil, realm Keycloak de demonstração e execução integrada pelo Docker Compose. | Lint, testes unitários e de componente, build de produção e Playwright contra API e Keycloak reais. Os E2E aferiram login, logout, autorização, responsividade e os golden cases C1, C2 e C3. |
 | Cadastro persistente | Implementar cedentes e recebíveis como primeira branch sequencial, mantendo domínio sem Spring, entidades JPA nos adapters, CNPJ verificável, valores financeiros textuais e paginação sem expor tipos do framework. | Migration incremental, APIs protegidas, contratos de aplicação, adapters PostgreSQL e Problem Details compartilhado. | Testes de CNPJ e aggregates, PostgreSQL real via Testcontainers, validação do OpenAPI e `ApplicationModules.verify()`. |
 | Currency engine | Substituir o câmbio configurado por snapshots imutáveis no PostgreSQL, integrar um provedor HTTP mockado, aplicar timeout/retry e limitar o refresh a `ADMIN`. | Módulo `currency` hexagonal, migration V3, adapter HTTP, WireMock no Compose, APIs de consulta/refresh e integração do pricing à API pública de câmbio. | Testes unitários de vigência e retry, timeout HTTP reproduzível, PostgreSQL real via Testcontainers, autorização/OpenAPI, Compose saudável e consulta direta ao histórico Flyway e ao snapshot persistido. |
+| Liquidação em lote | Implementar lotes de 1–100 itens com um instante e um snapshot cambial, transação `REQUIRES_NEW` por item, idempotência persistida e conflito concorrente sem aceitar valores financeiros do cliente. | Migration V4, API `POST /api/v1/settlement-batches`, snapshots cadastral e financeiro imutáveis, hash ordenado do payload, replay da resposta persistida e integração pelas APIs públicas dos módulos. | PostgreSQL real via Testcontainers, teste de rollback forçado, duas liquidações simultâneas, lote misto BRL/USD, ausência cambial, payload divergente, chave em processamento, limites do envelope e `ApplicationModules.verify()`. |
 
 ## 3. Erros e correções
 
@@ -131,6 +132,26 @@ Na revisão final da branch, a IA comparou os arquivos usados na compilação co
 - **Detecção:** `git check-ignore -v` apontou a regra e `git ls-tree -r HEAD` confirmou que nenhum arquivo sob `adapter/out` estava no commit mergeado.
 - **Correção:** a regra foi limitada a `/out/`, representando apenas o diretório de build na raiz, e todos os adapters de saída necessários passaram a ser versionados. A suíte completa foi repetida depois da correção.
 - **Evidências:** [`.gitignore`](./.gitignore), [`JpaReceivableRepositoryAdapter.java`](./src/main/java/com/credit/engine/srm/receivables/internal/adapter/out/persistence/JpaReceivableRepositoryAdapter.java) e [`JpaExchangeRateRepositoryAdapter.java`](./src/main/java/com/credit/engine/srm/currency/internal/adapter/out/persistence/JpaExchangeRateRepositoryAdapter.java).
+
+### 3.10 Tipo físico incompatível no registro idempotente
+
+Na primeira validação da migration de liquidação, a IA definiu `request_hash` como `CHAR(64)`, enquanto o mapeamento JPA declarava uma string variável de 64 caracteres.
+
+- **Erro:** o schema físico e o contrato validado pelo Hibernate representavam o mesmo conteúdo com tipos SQL diferentes.
+- **Impacto potencial:** a aplicação não iniciaria com `ddl-auto=validate`, impedindo o processamento e o replay idempotente.
+- **Detecção:** o teste integrado aplicou a V4 em PostgreSQL 17 real e a validação do Hibernate reportou a incompatibilidade da coluna.
+- **Correção:** a migration ainda não publicada foi ajustada para `VARCHAR(64)`, preservando o `CHECK` de SHA-256 hexadecimal e o limite de tamanho.
+- **Evidências:** [`V4__settlement_batches.sql`](./src/main/resources/db/migration/V4__settlement_batches.sql), [`IdempotencyJpaEntity.java`](./src/main/java/com/credit/engine/srm/settlements/internal/adapter/out/persistence/IdempotencyJpaEntity.java) e [`SrmApplicationTests.java`](./src/test/java/com/credit/engine/srm/SrmApplicationTests.java).
+
+### 3.11 Snapshot cambial aplicado indevidamente a item BRL
+
+Na primeira execução de um lote misto, a IA repassou o snapshot USD/BRL do lote tanto ao item USD quanto ao item BRL.
+
+- **Erro:** o aggregate de pricing rejeitou corretamente uma liquidação em BRL acompanhada de câmbio.
+- **Impacto potencial:** um lote misto produziria falha no item BRL apesar de a cotação ser necessária somente para USD.
+- **Detecção:** o teste HTTP do lote misto esperava sucesso nos dois itens e recebeu `RULE_VIOLATION` no item BRL.
+- **Correção:** o snapshot continua sendo selecionado uma única vez, mas é aplicado somente aos comandos em USD; comandos BRL recebem câmbio ausente.
+- **Evidências:** [`SettlementItemTransaction.java`](./src/main/java/com/credit/engine/srm/settlements/internal/application/SettlementItemTransaction.java) e [`SrmApplicationTests.java`](./src/test/java/com/credit/engine/srm/SrmApplicationTests.java).
 
 ## 4. O que não foi delegado
 

@@ -72,6 +72,32 @@ public final class Receivable {
                 id, assignorId, type, faceValue, dueDate, registrationDate, createdAt);
     }
 
+    public static Receivable restore(
+            ReceivableId id,
+            AssignorId assignorId,
+            ReceivableType type,
+            Money faceValue,
+            LocalDate dueDate,
+            LocalDate registrationDate,
+            Instant createdAt,
+            ReceivableStatus status,
+            SettlementId settlementId,
+            Instant settledAt) {
+        Receivable receivable = new Receivable(
+                id, assignorId, type, faceValue, dueDate, registrationDate, createdAt);
+        receivable.status = Objects.requireNonNull(status, "status is required");
+        receivable.settlementId = settlementId;
+        receivable.settledAt = settledAt;
+        boolean available = status == ReceivableStatus.AVAILABLE
+                && settlementId == null && settledAt == null;
+        boolean settled = status == ReceivableStatus.SETTLED
+                && settlementId != null && settledAt != null;
+        if (!available && !settled) {
+            throw new IllegalArgumentException("invalid persisted receivable state");
+        }
+        return receivable;
+    }
+
     public void markSettled(SettlementId settlementId, Instant settledAt) {
         Objects.requireNonNull(settlementId, "settlementId is required");
         Objects.requireNonNull(settledAt, "settledAt is required");
