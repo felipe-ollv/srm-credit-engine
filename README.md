@@ -21,14 +21,17 @@ Serviços locais:
 | Provedor cambial mockado (WireMock) | http://localhost:8082 |
 | PostgreSQL | localhost:5432 |
 
-As APIs atuais permitem simular pricing, cadastrar e consultar cedentes e recebíveis, consultar ou atualizar a cotação e liquidar recebíveis em lote. Todas usam Bearer JWT; valores monetários são representados como strings decimais no JSON.
+As APIs atuais permitem simular pricing, cadastrar e consultar cedentes e recebíveis, consultar ou atualizar a cotação, liquidar recebíveis em lote e consultar o extrato. Todas usam Bearer JWT; valores monetários são representados como strings decimais no JSON.
 
 - `GET /api/v1/exchange-rates/current` aceita `OPERATOR` e `ADMIN`.
 - `POST /api/v1/exchange-rates/refresh` aceita somente `ADMIN`.
 - `POST /api/v1/settlement-batches` aceita `OPERATOR` e `ADMIN`, exige `Idempotency-Key` e processa de 1 a 100 itens.
+- `GET /api/v1/settlements` aceita `OPERATOR` e `ADMIN`, com filtros por período, cedente e moeda, paginação server-side e ordenação controlada.
 - O Compose inicia o WireMock e captura uma cotação USD/BRL no startup da API. O pricing em USD consulta exclusivamente snapshots persistidos com até 24 horas.
 
 Na liquidação, o backend recalcula o pricing com um único instante e um único snapshot USD/BRL por lote. Cada item executa em transação independente: sucessos permanecem confirmados mesmo quando outro item falha. Repetir a mesma chave com o mesmo payload devolve a resposta persistida; reutilizá-la com payload diferente retorna `409`.
+
+No extrato, `from` e `to` são datas inclusivas na zona `America/Sao_Paulo`. O parâmetro `sort` aceita `settledAt`, `assignorLegalName` ou `paymentAmount`, seguido de `asc` ou `desc`; o padrão é `settledAt,desc`.
 
 O Swagger exige um Bearer token válido, assim como as rotas de negócio.
 

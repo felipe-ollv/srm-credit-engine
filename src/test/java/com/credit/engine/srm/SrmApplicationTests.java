@@ -36,6 +36,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
@@ -88,7 +90,7 @@ class SrmApplicationTests {
 				Integer.class
 		);
 
-		assertThat(appliedMigrations).isEqualTo(4);
+		assertThat(appliedMigrations).isEqualTo(5);
 		assertThat(openApi.getInfo().getTitle()).isEqualTo("SRM Credit Engine API");
 		assertThat(openApi.getComponents().getSecuritySchemes()).containsKey("bearerAuth");
 	}
@@ -457,6 +459,7 @@ class SrmApplicationTests {
 				.andExpect(jsonPath("$.paths['/api/v1/exchange-rates/refresh'].post").exists())
 				.andExpect(jsonPath("$.paths['/api/v1/exchange-rates/current'].get").exists())
 				.andExpect(jsonPath("$.paths['/api/v1/settlement-batches'].post").exists())
+				.andExpect(jsonPath("$.paths['/api/v1/settlements'].get").exists())
 				.andExpect(jsonPath("$.paths['/api/v1/pricing/simulations'].post.responses['503']").exists())
 				.andExpect(jsonPath("$.components.schemas.ApiProblem.properties.correlationId").exists())
 				.andExpect(jsonPath("$.components.schemas.ApiProblem.properties.fieldErrors").exists())
@@ -696,14 +699,203 @@ class SrmApplicationTests {
 				.isEqualTo("AVAILABLE");
 	}
 
+	@Test
+	void shouldSearchSettlementStatementsWithCombinedFiltersAndInclusiveBusinessDates()
+			throws Exception {
+		UUID assignorId = createAssignor("Reporting Assignor Ltda.");
+		createReportedSettlement(
+				assignorId,
+				"DUPLICATA_MERCANTIL",
+				"50000.00",
+				"BRL",
+				"report-filter-brl-before",
+				Instant.parse("2026-08-26T20:00:00Z"));
+		ReportedSettlement usd = createReportedSettlement(
+				assignorId,
+				"DUPLICATA_MERCANTIL",
+				"100000.00",
+				"USD",
+				"report-filter-usd",
+				Instant.parse("2026-08-27T15:00:00Z"));
+		createReportedSettlement(
+				assignorId,
+				"CHEQUE_PRE_DATADO",
+				"25000.00",
+				"BRL",
+				"report-filter-brl-after",
+				Instant.parse("2026-08-28T15:00:00Z"));
+
+		mockMvc.perform(get("/api/v1/settlements")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.param("from", "2026-08-27")
+					.param("to", "2026-08-28")
+					.param("assignorId", assignorId.toString())
+					.param("paymentCurrency", "USD"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.totalElements").value(1))
+				.andExpect(jsonPath("$.content[0].settlementId")
+						.value(usd.settlementId().toString()))
+				.andExpect(jsonPath("$.content[0].assignorId").value(assignorId.toString()))
+				.andExpect(jsonPath("$.content[0].assignorDocument")
+						.value(matchesPattern("[0-9]{14}")))
+				.andExpect(jsonPath("$.content[0].assignorLegalName")
+						.value("Reporting Assignor Ltda."))
+				.andExpect(jsonPath("$.content[0].receivableType")
+						.value("DUPLICATA_MERCANTIL"))
+				.andExpect(jsonPath("$.content[0].faceValue.amount").value("100000.00"))
+				.andExpect(jsonPath("$.content[0].presentValue.amount").value("92859.94"))
+				.andExpect(jsonPath("$.content[0].discount.amount").value("7140.06"))
+				.andExpect(jsonPath("$.content[0].payment.amount").value("17094.67"))
+				.andExpect(jsonPath("$.content[0].payment.currency").value("USD"))
+				.andExpect(jsonPath("$.content[0].termMonths").value(3))
+				.andExpect(jsonPath("$.content[0].baseRate").value("0.01"))
+				.andExpect(jsonPath("$.content[0].spread").value("0.015"))
+				.andExpect(jsonPath("$.content[0].exchangeRate.rate").value("5.4321"))
+				.andExpect(jsonPath("$.content[0].settledAt")
+						.value("2026-08-27T15:00:00Z"));
+
+		mockMvc.perform(get("/api/v1/settlements")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))
+					.param("from", "2026-08-28")
+					.param("to", "2026-08-28")
+					.param("assignorId", assignorId.toString()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.totalElements").value(1))
+				.andExpect(jsonPath("$.content[0].payment.currency").value("BRL"));
+
+		mockMvc.perform(get("/api/v1/settlements")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.param("paymentCurrency", "USD")
+					.param("size", "100"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.content[*].payment.currency", everyItem(equalTo("USD"))));
+	}
+
+	@Test
+	void shouldPageAndSortSettlementStatementsOnTheServer() throws Exception {
+		UUID assignorId = createAssignor("Paged Reporting Ltda.");
+		createReportedSettlement(
+				assignorId, "DUPLICATA_MERCANTIL", "3000.00", "BRL",
+				"report-page-3000", Instant.parse("2026-08-28T15:00:00Z"));
+		createReportedSettlement(
+				assignorId, "DUPLICATA_MERCANTIL", "1000.00", "BRL",
+				"report-page-1000", Instant.parse("2026-08-26T20:00:00Z"));
+		createReportedSettlement(
+				assignorId, "DUPLICATA_MERCANTIL", "2000.00", "BRL",
+				"report-page-2000", Instant.parse("2026-08-27T15:00:00Z"));
+
+		mockMvc.perform(get("/api/v1/settlements")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.param("assignorId", assignorId.toString())
+					.param("page", "0")
+					.param("size", "2")
+					.param("sort", "paymentAmount,asc"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.page").value(0))
+				.andExpect(jsonPath("$.size").value(2))
+				.andExpect(jsonPath("$.totalElements").value(3))
+				.andExpect(jsonPath("$.totalPages").value(2))
+				.andExpect(jsonPath("$.content.length()").value(2))
+				.andExpect(jsonPath("$.content[0].faceValue.amount").value("1000.00"))
+				.andExpect(jsonPath("$.content[1].faceValue.amount").value("2000.00"));
+
+		mockMvc.perform(get("/api/v1/settlements")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.param("assignorId", assignorId.toString())
+					.param("page", "1")
+					.param("size", "2")
+					.param("sort", "paymentAmount,asc"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.content.length()").value(1))
+				.andExpect(jsonPath("$.content[0].faceValue.amount").value("3000.00"));
+	}
+
+	@Test
+	void shouldProtectReportingAndRejectInvalidFilters() throws Exception {
+		mockMvc.perform(get("/api/v1/settlements"))
+				.andExpect(status().isUnauthorized());
+
+		mockMvc.perform(get("/api/v1/settlements").with(jwt()))
+				.andExpect(status().isForbidden());
+
+		mockMvc.perform(get("/api/v1/settlements")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.param("from", "2026-08-28")
+					.param("to", "2026-08-27"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("REPORT_QUERY_INVALID"));
+
+		mockMvc.perform(get("/api/v1/settlements")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.param("sort", "settledAt;drop table settlements"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("REPORT_QUERY_INVALID"));
+
+		mockMvc.perform(get("/api/v1/settlements")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.param("size", "101"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("REQUEST_INVALID"));
+	}
+
+	@Test
+	void shouldUseCombinedReportingIndexForThePrimaryFilteredPlan() throws Exception {
+		UUID assignorId = createAssignor("Indexed Reporting Ltda.");
+		createReportedSettlement(
+				assignorId, "DUPLICATA_MERCANTIL", "100000.00", "USD",
+				"report-index-usd", Instant.parse("2026-08-27T15:00:00Z"));
+
+		String plan = jdbcTemplate.execute((org.springframework.jdbc.core.ConnectionCallback<String>) connection -> {
+			try (java.sql.Statement statement = connection.createStatement()) {
+				statement.execute("set enable_seqscan = off");
+			}
+			try (java.sql.PreparedStatement statement = connection.prepareStatement("""
+					explain (costs off)
+					select id
+					  from settlements
+					 where assignor_id = ? and payment_currency = ?
+					 order by settled_at desc, id desc
+					 limit 20
+					""")) {
+				statement.setObject(1, assignorId);
+				statement.setString(2, "USD");
+				try (java.sql.ResultSet resultSet = statement.executeQuery()) {
+					StringBuilder lines = new StringBuilder();
+					while (resultSet.next()) {
+						lines.append(resultSet.getString(1)).append('\n');
+					}
+					return lines.toString();
+				}
+			} finally {
+				try (java.sql.Statement statement = connection.createStatement()) {
+					statement.execute("reset enable_seqscan");
+				}
+			}
+		});
+
+		assertThat(plan).contains("idx_settlements_assignor_currency_period_id");
+	}
+
 	private UUID createReceivable(String type, String faceValue, LocalDate dueDate) {
+		return createReceivable(createAssignor("Settlement Test Assignor"), type, faceValue, dueDate);
+	}
+
+	private UUID createAssignor(String legalName) {
 		UUID assignorId = UUID.randomUUID();
-		UUID receivableId = UUID.randomUUID();
 		String document = "%014d".formatted(90_000_000L + DOCUMENT_SEQUENCE.incrementAndGet());
 		jdbcTemplate.update("""
 				insert into assignors (id, document, legal_name, created_at)
 				values (?, ?, ?, ?)
-				""", assignorId, document, "Settlement Test Assignor", asUtc(FIXED_NOW));
+				""", assignorId, document, legalName, asUtc(FIXED_NOW));
+		return assignorId;
+	}
+
+	private UUID createReceivable(
+			UUID assignorId,
+			String type,
+			String faceValue,
+			LocalDate dueDate) {
+		UUID receivableId = UUID.randomUUID();
 		jdbcTemplate.update("""
 				insert into receivables
 				    (id, assignor_id, type, face_value, due_date, registration_date,
@@ -718,6 +910,43 @@ class SrmApplicationTests {
 				LocalDate.parse("2026-08-26"),
 				asUtc(FIXED_NOW));
 		return receivableId;
+	}
+
+	private ReportedSettlement createReportedSettlement(
+			UUID assignorId,
+			String type,
+			String faceValue,
+			String paymentCurrency,
+			String idempotencyKey,
+			Instant settledAt) throws Exception {
+		UUID receivableId = createReceivable(
+				assignorId, type, faceValue, LocalDate.parse("2026-11-26"));
+		mockMvc.perform(post("/api/v1/settlement-batches")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.header("Idempotency-Key", idempotencyKey)
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(settlementRequest(receivableId, paymentCurrency)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.items[0].status").value("SUCCESS"));
+		UUID settlementId = jdbcTemplate.queryForObject(
+				"select id from settlements where receivable_id = ?",
+				UUID.class,
+				receivableId);
+		LocalDate pricingDate = LocalDate.ofInstant(
+				settledAt, java.time.ZoneId.of("America/Sao_Paulo"));
+		jdbcTemplate.update("""
+				update settlements
+				   set pricing_date = ?, calculated_at = ?, settled_at = ?
+				 where id = ?
+				""", pricingDate, asUtc(settledAt), asUtc(settledAt), settlementId);
+		jdbcTemplate.update(
+				"update receivables set settled_at = ? where id = ?",
+				asUtc(settledAt),
+				receivableId);
+		return new ReportedSettlement(settlementId, receivableId);
+	}
+
+	private record ReportedSettlement(UUID settlementId, UUID receivableId) {
 	}
 
 	private int countSettlements(UUID... receivableIds) {

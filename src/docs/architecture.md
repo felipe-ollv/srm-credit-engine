@@ -1,6 +1,6 @@
 # Arquitetura do SRM Credit Engine
 
-Este documento apresenta a arquitetura da entrega Sênior. No estado atual, frontend de simulação, autenticação, pricing, cedentes, recebíveis, currency engine e liquidação em lote estão implementados; reporting, telas operacionais adicionais e seus artefatos operacionais permanecem planejados. Os diagramas usam a notação C4 nos níveis de contexto e contêiner e detalham, em seguida, os módulos e as fronteiras hexagonais do backend.
+Este documento apresenta a arquitetura da entrega Sênior. No estado atual, frontend de simulação, autenticação, pricing, cedentes, recebíveis, currency engine, liquidação em lote e reporting estão implementados; telas operacionais adicionais e seus artefatos operacionais permanecem planejados. Os diagramas usam a notação C4 nos níveis de contexto e contêiner e detalham, em seguida, os módulos e as fronteiras hexagonais do backend.
 
 ## C4 — Nível 1: contexto do sistema
 
@@ -49,7 +49,7 @@ flowchart LR
 
 - O Angular mantém o token apenas durante a sessão, aplica guards por perfil e nunca calcula valores financeiros autoritativos.
 - O backend recalcula todas as simulações e liquidações, valida o JWT e concentra as regras de negócio.
-- O PostgreSQL assegura constraints de cedentes, recebíveis, snapshots cambiais, idempotência e registros imutáveis de liquidação; `@Version` e unicidade por recebível protegem disputas concorrentes.
+- O PostgreSQL assegura constraints de cedentes, recebíveis, snapshots cambiais, idempotência e registros imutáveis de liquidação; `@Version` e unicidade por recebível protegem disputas concorrentes, enquanto índices compostos sustentam o extrato.
 - O Keycloak administra usuários e credenciais; o motor de crédito consome somente identidade e perfis.
 - O provedor mockado é chamado no refresh de câmbio. A liquidação usa apenas taxas vigentes já persistidas.
 
@@ -95,7 +95,7 @@ flowchart LR
     currency -->|"Provider port + HTTP adapter"| fx_provider
 ```
 
-As setas entre módulos representam as únicas dependências síncronas permitidas. O `shared` é um shared kernel mínimo e estável, limitado a value objects financeiros, vocabulário comum e IDs tipados; ele não contém regra de orquestração nem depende dos módulos de negócio. Cada módulo expõe sua API de aplicação e mantém domínio, portas e adapters internos encapsulados. `Pricing` consulta a API pública de `currency`, que seleciona no PostgreSQL o snapshot vigente de até 24 horas; somente o refresh administrativo chama o provedor HTTP. `Settlements` usa exclusivamente as APIs públicas de `receivables`, `pricing` e `currency`, obtém um snapshot por lote e delimita uma transação `REQUIRES_NEW` por item. O futuro `reporting` será um read model com SQL otimizado.
+As setas entre módulos representam as únicas dependências síncronas permitidas. O `shared` é um shared kernel mínimo e estável, limitado a value objects financeiros, vocabulário comum e IDs tipados; ele não contém regra de orquestração nem depende dos módulos de negócio. Cada módulo expõe sua API de aplicação e mantém domínio, portas e adapters internos encapsulados. `Pricing` consulta a API pública de `currency`, que seleciona no PostgreSQL o snapshot vigente de até 24 horas; somente o refresh administrativo chama o provedor HTTP. `Settlements` usa exclusivamente as APIs públicas de `receivables`, `pricing` e `currency`, obtém um snapshot por lote e delimita uma transação `REQUIRES_NEW` por item. `Reporting` lê os snapshots diretamente por uma porta implementada com `JdbcClient`, SQL parametrizado, allow-list de ordenação e índices dedicados, sem carregar aggregates JPA.
 
 ## Estrutura hexagonal aplicada por módulo
 

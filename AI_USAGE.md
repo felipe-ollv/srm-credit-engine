@@ -1,6 +1,6 @@
 # Uso de IA no desenvolvimento
 
-> Documento vivo — última atualização: 27/08/2026.
+> Documento vivo — última atualização: 28/08/2026.
 
 ## 1. Como a IA foi utilizada
 
@@ -32,6 +32,7 @@ Este registro resume as interações relevantes; ele não reproduz o histórico 
 | Cadastro persistente | Implementar cedentes e recebíveis como primeira branch sequencial, mantendo domínio sem Spring, entidades JPA nos adapters, CNPJ verificável, valores financeiros textuais e paginação sem expor tipos do framework. | Migration incremental, APIs protegidas, contratos de aplicação, adapters PostgreSQL e Problem Details compartilhado. | Testes de CNPJ e aggregates, PostgreSQL real via Testcontainers, validação do OpenAPI e `ApplicationModules.verify()`. |
 | Currency engine | Substituir o câmbio configurado por snapshots imutáveis no PostgreSQL, integrar um provedor HTTP mockado, aplicar timeout/retry e limitar o refresh a `ADMIN`. | Módulo `currency` hexagonal, migration V3, adapter HTTP, WireMock no Compose, APIs de consulta/refresh e integração do pricing à API pública de câmbio. | Testes unitários de vigência e retry, timeout HTTP reproduzível, PostgreSQL real via Testcontainers, autorização/OpenAPI, Compose saudável e consulta direta ao histórico Flyway e ao snapshot persistido. |
 | Liquidação em lote | Implementar lotes de 1–100 itens com um instante e um snapshot cambial, transação `REQUIRES_NEW` por item, idempotência persistida e conflito concorrente sem aceitar valores financeiros do cliente. | Migration V4, API `POST /api/v1/settlement-batches`, snapshots cadastral e financeiro imutáveis, hash ordenado do payload, replay da resposta persistida e integração pelas APIs públicas dos módulos. | PostgreSQL real via Testcontainers, teste de rollback forçado, duas liquidações simultâneas, lote misto BRL/USD, ausência cambial, payload divergente, chave em processamento, limites do envelope e `ApplicationModules.verify()`. |
+| Extrato analítico | Implementar a consulta paginada sem carregar aggregates JPA, com filtros combináveis, valores financeiros textuais e ordenação limitada a campos conhecidos. | Módulo `reporting`, API `GET /api/v1/settlements`, read model completo via `JdbcClient`, datas inclusivas de São Paulo e migration V5 com índices dedicados. | Testes HTTP de filtros isolados e combinados, paginação, ordenação, segurança e limites; `EXPLAIN` em PostgreSQL real confirmou o índice composto e `ApplicationModules.verify()` protegeu a independência do módulo. |
 
 ## 3. Erros e correções
 
