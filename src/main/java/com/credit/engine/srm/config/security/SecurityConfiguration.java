@@ -105,7 +105,7 @@ public class SecurityConfiguration {
         configuration.setAllowedOrigins(properties.allowedOrigins());
         configuration.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
         configuration.setAllowedHeaders(List.of(
-                "Authorization", "Content-Type", "X-Correlation-Id"));
+                "Authorization", "Content-Type", "X-Correlation-Id", "Idempotency-Key"));
         configuration.setExposedHeaders(List.of("X-Correlation-Id"));
         configuration.setMaxAge(3600L);
 

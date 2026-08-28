@@ -19,7 +19,9 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -102,11 +104,13 @@ class HttpExchangeRateProviderTest {
     @Test
     void shouldApplyReadTimeoutToEveryAttempt() throws Exception {
         AtomicInteger requests = new AtomicInteger();
+        CountDownLatch attemptsReceived = new CountDownLatch(3);
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             server.setExecutor(executor);
             server.createContext("/rates/USD/BRL", exchange -> {
                 requests.incrementAndGet();
+                attemptsReceived.countDown();
                 try {
                     Thread.sleep(200);
                     exchange.sendResponseHeaders(200, -1);
@@ -143,6 +147,7 @@ class HttpExchangeRateProviderTest {
             assertThatThrownBy(provider::fetchUsdToBrl)
                     .isInstanceOf(ExchangeRateProviderUnavailableException.class)
                     .hasMessage("Exchange rate provider is unavailable after 3 attempts");
+            assertThat(attemptsReceived.await(1, TimeUnit.SECONDS)).isTrue();
             assertThat(requests).hasValue(3);
         } finally {
             server.stop(0);

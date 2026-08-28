@@ -48,9 +48,11 @@ class JpaAssignorRepositoryAdapter implements AssignorRepository {
 
     @Override
     public PageResult<AssignorView> search(String query, int page, int size) {
-        Page<AssignorJpaEntity> result = repository.search(
-                query,
-                PageRequest.of(page, size, Sort.by("legalName").ascending().and(Sort.by("id"))));
+        PageRequest pageRequest = PageRequest.of(
+                page, size, Sort.by("legalName").ascending().and(Sort.by("id")));
+        Page<AssignorJpaEntity> result = query == null
+                ? repository.findAll(pageRequest)
+                : repository.search(query, pageRequest);
         return new PageResult<>(
                 result.getContent().stream().map(JpaAssignorRepositoryAdapter::toView).toList(),
                 result.getNumber(),
