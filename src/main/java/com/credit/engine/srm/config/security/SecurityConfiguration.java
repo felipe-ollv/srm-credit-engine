@@ -45,6 +45,8 @@ public class SecurityConfiguration {
                         .hasAnyRole("OPERATOR", "ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/v1/settlement-batches")
                         .hasAnyRole("OPERATOR", "ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/settlements")
+                        .hasAnyRole("OPERATOR", "ADMIN")
                         .requestMatchers("/api/v1/assignors", "/api/v1/assignors/**")
                         .hasAnyRole("OPERATOR", "ADMIN")
                         .requestMatchers("/api/v1/receivables", "/api/v1/receivables/**")
