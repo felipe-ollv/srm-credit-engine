@@ -452,6 +452,18 @@ class SrmApplicationTests {
 		mockMvc.perform(get("/actuator/health"))
 				.andExpect(status().isOk());
 
+		mockMvc.perform(get("/actuator/prometheus"))
+				.andExpect(status().isUnauthorized());
+
+		mockMvc.perform(get("/actuator/prometheus")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR"))))
+				.andExpect(status().isForbidden());
+
+		mockMvc.perform(get("/actuator/prometheus")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+				.andExpect(status().isOk())
+				.andExpect(content().string(org.hamcrest.Matchers.containsString("# HELP")));
+
 		mockMvc.perform(get("/actuator"))
 				.andExpect(status().isUnauthorized());
 

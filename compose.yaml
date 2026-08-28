@@ -29,6 +29,7 @@ services:
       SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/srm-credit-engine/protocol/openid-connect/certs
       FX_PROVIDER_BASE_URL: http://fx-provider:8080
       FX_BOOTSTRAP_ENABLED: "true"
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: logstash
     ports:
       - "8080:8080"
     depends_on:
