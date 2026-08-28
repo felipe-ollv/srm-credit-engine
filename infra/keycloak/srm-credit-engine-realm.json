@@ -57,6 +57,34 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "srm-credit-engine-load-test",
+      "name": "SRM Credit Engine Local Load Test",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "load-test-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "credit-engine-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "srm-credit-engine-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
     }
   ],
   "users": [
@@ -107,6 +135,12 @@
         }
       ],
       "realmRoles": []
+    },
+    {
+      "username": "service-account-srm-credit-engine-load-test",
+      "enabled": true,
+      "serviceAccountClientId": "srm-credit-engine-load-test",
+      "realmRoles": ["OPERATOR"]
     }
   ]
 }
