@@ -35,6 +35,7 @@ Este registro resume as interações relevantes; ele não reproduz o histórico 
 | Extrato analítico | Implementar a consulta paginada sem carregar aggregates JPA, com filtros combináveis, valores financeiros textuais e ordenação limitada a campos conhecidos. | Módulo `reporting`, API `GET /api/v1/settlements`, read model completo via `JdbcClient`, datas inclusivas de São Paulo e migration V5 com índices dedicados. | Testes HTTP de filtros isolados e combinados, paginação, ordenação, segurança e limites; `EXPLAIN` em PostgreSQL real confirmou o índice composto e `ApplicationModules.verify()` protegeu a independência do módulo. |
 | Operações no frontend | Completar somente os fluxos suportados pelos contratos backend, mantendo cálculo financeiro autoritativo no servidor, tokens em memória, paginação server-side e retry idempotente. | Rotas lazy para cedentes, recebíveis, liquidação, extrato e câmbio; facades locais com signals; chave idempotente preservada em falhas e renovada após mudança ou conclusão; navegação administrativa condicionada ao perfil. | TypeScript estrito, lint, testes de CNPJ, contratos HTTP, filtros, paginação, perfis e ciclo da chave; build limpo em Node 24 e Playwright contra Compose real cobrindo o fluxo operacional e o refresh de câmbio. |
 | Operabilidade e CI | Implementar somente os requisitos operacionais de Sênior: logs seguros e estruturados, métricas de negócio, Prometheus protegido, pipeline reproduzível e aferição dos limites do SPEC. | Filtros de correlação e logging, decorators Micrometer, endpoint Prometheus exclusivo de `ADMIN`, GitHub Actions em três gates e cenários k6 para simulação e lote de 100 itens. | Testes unitários verificam tags, resultados e ausência de token/valor no evento de requisição; teste integrado verifica a autorização do Prometheus; scripts k6 materializam os limites de p95 definidos pelo candidato no `SPEC.md`. |
+| Revisão da entrega | Fechar apenas os artefatos exigidos para Sênior, sem produzir os documentos substitutivos de Staff nem alegar componentes planejados como implementados. | `REVIEW.md` priorizado por risco, C4 atualizado, modelo ER, estado final das decisões e roteiro de defesa no README. | Confronto com o Anexo A, migrations V2–V5, APIs e testes existentes; revisão humana final permanece necessária antes da entrega. |
 
 ## 3. Erros e correções
 
@@ -92,7 +93,7 @@ Na primeira composição do realm de demonstração, a IA criou os usuários loc
 - **Impacto potencial:** nenhum perfil de demonstração conseguia concluir automaticamente o login usado nos testes e na avaliação local.
 - **Detecção:** o primeiro teste Playwright não encontrou a aplicação após enviar as credenciais; a captura da página mostrou o formulário adicional do Keycloak.
 - **Correção:** os usuários do realm receberam e-mails de demonstração e o import foi recriado antes da repetição do E2E.
-- **Evidências:** [`srm-credit-engine-realm.json`](./infra/keycloak/srm-credit-engine-realm.json) e [`pricing.spec.ts`](./frontend/e2e/pricing.spec.ts).
+- **Evidências:** [`srm-credit-engine-realm.json`](./infra/keycloak/srm-credit-engine-realm.json) e [`pricing-simulation.spec.ts`](./frontend/e2e/pricing-simulation.spec.ts).
 
 O mesmo ciclo revelou que a política padrão `sslRequired=external` recusava o discovery OIDC no ambiente HTTP local com `HTTPS required`. Como o Compose usa exclusivamente o modo de desenvolvimento, o realm foi limitado a `sslRequired=none`; produção permanece fora desse perfil. A correção foi validada pelo discovery OIDC e pelos fluxos reais de login do Playwright.
 
@@ -185,6 +186,16 @@ Na primeira execução do teste de carga de simulação, a IA configurou dez usu
 - **Detecção:** o próprio threshold `http_req_failed=0` do k6 falhou e o graceful stop registrou os timeouts reproduzíveis.
 - **Correção:** o cenário passou a usar `constant-arrival-rate` de 50 simulações/s, VUs pré-alocados, threshold de zero requisições falhas e zero iterações descartadas. A repetição processou 1.501 simulações com p95 de 5,82 ms, sem falhas ou descartes.
 - **Evidência:** [`pricing-simulation.js`](./performance/pricing-simulation.js) e o limite definido no [`SPEC.md`](./SPEC.md).
+
+### 3.15 Teste de timeout dependente do escalonamento do runner
+
+O primeiro pipeline do PR final falhou embora a suíte tivesse passado localmente.
+
+- **Erro:** o teste gerado para comprovar três timeouts atrasava o envio dos headers e aguardava que três handlers fossem escalonados em uma janela fixa de um segundo.
+- **Impacto potencial:** falso negativo no CI, bloqueio do E2E e perda de confiança na suíte.
+- **Detecção:** o GitHub Actions registrou `shouldApplyReadTimeoutToEveryAttempt` como a única falha entre 82 testes; a exceção esperada após três tentativas já havia sido produzida, mas o latch temporal não terminou.
+- **Correção:** o servidor de teste passou a enviar headers imediatamente e atrasar somente o corpo. Assim, cada timeout continua real e uma tentativa só expira depois de ter sido contabilizada pelo servidor, sem espera posterior baseada no desempenho do runner.
+- **Evidência:** [`HttpExchangeRateProviderTest.java`](./src/test/java/com/credit/engine/srm/currency/internal/adapter/out/http/HttpExchangeRateProviderTest.java).
 
 ## 4. O que não foi delegado
 

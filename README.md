@@ -132,4 +132,25 @@ O desenvolvimento segue GitHub Flow:
 - [`SPEC.md`](./SPEC.md): premissas financeiras e semântica funcional.
 - [`DECISIONS.md`](./DECISIONS.md): escolhas, simplificações e gatilhos de evolução.
 - [`src/docs/architecture.md`](./src/docs/architecture.md): diagramas C4 e limites modulares.
+- [`REVIEW.md`](./REVIEW.md): revisão priorizada do código inseguro do Anexo A.
 - [`AI_USAGE.md`](./AI_USAGE.md): registro vivo da colaboração com IA.
+
+## Roteiro de demonstração e defesa
+
+1. Subir o Compose e autenticar como `operator`; executar os golden cases BRL e USD na simulação.
+2. Cadastrar cedente e recebível, liquidá-lo e localizar o snapshot no extrato.
+3. Repetir a mesma tentativa para demonstrar o replay idempotente e explicar o hash do payload.
+4. Autenticar como `admin`, atualizar a cotação e consultar as métricas Prometheus protegidas.
+5. Percorrer os diagramas C4/ER e mostrar as fronteiras verificadas pelo Spring Modulith.
+6. Mostrar o teste de duas liquidações concorrentes, o `@Version`, a constraint única e a transação por item.
+
+Para uma mudança ao vivo, os pontos de extensão intencionais são: adicionar uma implementação de `PricingStrategy` e o respectivo `ReceivableType`; ampliar `Currency` e o contrato cambial preservando a conversão após o PV BRL arredondado; ou trocar a política de arredondamento exclusivamente no `DiscountCalculator`, atualizando golden cases antes de aceitar a alteração. Em indisponibilidade cambial, o refresh retorna erro explícito e não remove snapshots válidos; a liquidação USD só prossegue com snapshot persistido vigente.
+
+Checklist de defesa:
+
+- explicar por que dinheiro e taxas nunca usam ponto flutuante binário;
+- distinguir idempotência de locking otimista e de constraint única;
+- justificar um snapshot cambial por lote e `REQUIRES_NEW` por item;
+- demonstrar que o frontend não envia resultados financeiros autoritativos;
+- relacionar logs, métricas e códigos de erro a um diagnóstico de produção;
+- defender os cortes registrados em `DECISIONS.md` sem extrapolar para requisitos de Staff.
