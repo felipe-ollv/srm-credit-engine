@@ -52,10 +52,17 @@ O Angular 21 foi escolhido em vez do Angular 17 por permanecer em LTS até 2027,
 - Diagramas C4 nos níveis 1 e 2.
 - `REVIEW.md`, `AI_USAGE.md`, README e histórico Git defensável.
 
-## 5. Contrato de segurança assumido
+## 5. Estado operacional
+
+- Logs estruturados JSON foram habilitados no perfil Docker, com correlação e idempotência e sem captura de corpos, valores financeiros ou tokens.
+- Métricas de pricing, liquidação e atualização cambial são exportadas em formato Prometheus; o endpoint exige perfil `ADMIN`.
+- O pipeline de CI separa backend, frontend e E2E integrado, usando Java 21, Node 24, PostgreSQL real, Compose e Chromium.
+- Os limites do `SPEC.md` são executáveis pelos cenários k6 de simulação e de lote com 100 itens.
+
+## 6. Contrato de segurança assumido
 
 - Todas as rotas de negócio exigem `Authorization: Bearer <JWT>` emitido pelo Keycloak.
 - `OPERATOR` pode cadastrar cedentes e recebíveis, simular, liquidar e consultar extratos.
 - `ADMIN` herda as permissões de operador e pode solicitar atualização cambial.
-- Health e readiness são os únicos endpoints técnicos públicos; informações sensíveis não serão expostas neles.
+- Health e readiness são os únicos endpoints técnicos públicos; Prometheus exige `ADMIN` e informações sensíveis não são registradas nos logs de requisição.
 - Criação de usuários, credenciais, recuperação de senha e MFA permanecem sob responsabilidade do Keycloak.

@@ -55,6 +55,8 @@ O frontend usa contratos TypeScript manuais e facades por feature. Tokens perman
 
 Essas credenciais existem somente no realm local importado pelo Docker Compose. Não devem ser reutilizadas em outros ambientes. O administrador do Keycloak local usa `admin/admin`.
 
+O realm também contém o client confidencial `srm-credit-engine-load-test`, com perfil `OPERATOR`, exclusivamente para os testes k6 locais. Seu secret de demonstração não deve ser promovido para outro ambiente.
+
 ## Desenvolvimento
 
 Backend, com Java 21:
@@ -88,6 +90,42 @@ npm run e2e
 ```
 
 O E2E pressupõe que o Compose esteja em execução e usa Chromium para validar login, autorização, responsividade, golden cases financeiros, cadastro, liquidação, extrato e atualização cambial pela interface real.
+
+## Observabilidade
+
+No Compose, a API escreve logs JSON no formato Logstash. Cada término de requisição registra somente método, path sem query string, status, duração, correlation ID e, quando válido, `Idempotency-Key`. Corpo, valores financeiros, token e demais headers não são registrados.
+
+As métricas disponíveis incluem:
+
+- `pricing.simulation.duration`, por resultado e moeda;
+- `settlement.batch.duration`, por resultado global;
+- `settlement.items.total`, por resultado individual e moeda;
+- `fx.refresh.total`, por resultado.
+
+`/actuator/health` e os probes permanecem públicos. `/actuator/prometheus` exige Bearer JWT com perfil `ADMIN`; use um token administrativo válido no header `Authorization` para consultar o endpoint.
+
+## Teste de carga
+
+Com o Compose saudável e [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/) instalado:
+
+```bash
+k6 run performance/pricing-simulation.js
+k6 run performance/settlement-batch.js
+```
+
+O primeiro cenário sustenta 50 simulações/s por 30 segundos e exige p95 de até 100 ms. O segundo cria deterministicamente um cedente e 100 recebíveis, liquida todo o lote em uma chamada e exige p95 de até 2 segundos. Ambos rejeitam falhas HTTP. `RATE`, `DURATION`, `API_BASE_URL`, `KEYCLOAK_URL`, `CLIENT_ID` e `CLIENT_SECRET` podem ser sobrescritos por ambiente.
+
+## Integração contínua e fluxo Git
+
+O workflow [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) executa três gates: Maven com Java 21 e PostgreSQL/Testcontainers; lint, testes e build Angular com Node 24; e Compose completo com Playwright/Chromium. Logs dos containers são publicados no job quando o E2E falha.
+
+O desenvolvimento segue GitHub Flow:
+
+1. atualizar `main` e criar uma branch curta por objetivo (`feat/...`, `fix/...`, `docs/...`);
+2. registrar commits pequenos em [Conventional Commits](https://www.conventionalcommits.org/), por exemplo `feat(settlements): add batch metrics`;
+3. abrir PR com motivação, riscos, migrations afetadas e evidências dos comandos de validação;
+4. exigir CI verde e revisão antes do merge;
+5. criar a próxima branch somente a partir da `main` já atualizada.
 
 ## Decisões e arquitetura
 

@@ -34,6 +34,7 @@ Este registro resume as interações relevantes; ele não reproduz o histórico 
 | Liquidação em lote | Implementar lotes de 1–100 itens com um instante e um snapshot cambial, transação `REQUIRES_NEW` por item, idempotência persistida e conflito concorrente sem aceitar valores financeiros do cliente. | Migration V4, API `POST /api/v1/settlement-batches`, snapshots cadastral e financeiro imutáveis, hash ordenado do payload, replay da resposta persistida e integração pelas APIs públicas dos módulos. | PostgreSQL real via Testcontainers, teste de rollback forçado, duas liquidações simultâneas, lote misto BRL/USD, ausência cambial, payload divergente, chave em processamento, limites do envelope e `ApplicationModules.verify()`. |
 | Extrato analítico | Implementar a consulta paginada sem carregar aggregates JPA, com filtros combináveis, valores financeiros textuais e ordenação limitada a campos conhecidos. | Módulo `reporting`, API `GET /api/v1/settlements`, read model completo via `JdbcClient`, datas inclusivas de São Paulo e migration V5 com índices dedicados. | Testes HTTP de filtros isolados e combinados, paginação, ordenação, segurança e limites; `EXPLAIN` em PostgreSQL real confirmou o índice composto e `ApplicationModules.verify()` protegeu a independência do módulo. |
 | Operações no frontend | Completar somente os fluxos suportados pelos contratos backend, mantendo cálculo financeiro autoritativo no servidor, tokens em memória, paginação server-side e retry idempotente. | Rotas lazy para cedentes, recebíveis, liquidação, extrato e câmbio; facades locais com signals; chave idempotente preservada em falhas e renovada após mudança ou conclusão; navegação administrativa condicionada ao perfil. | TypeScript estrito, lint, testes de CNPJ, contratos HTTP, filtros, paginação, perfis e ciclo da chave; build limpo em Node 24 e Playwright contra Compose real cobrindo o fluxo operacional e o refresh de câmbio. |
+| Operabilidade e CI | Implementar somente os requisitos operacionais de Sênior: logs seguros e estruturados, métricas de negócio, Prometheus protegido, pipeline reproduzível e aferição dos limites do SPEC. | Filtros de correlação e logging, decorators Micrometer, endpoint Prometheus exclusivo de `ADMIN`, GitHub Actions em três gates e cenários k6 para simulação e lote de 100 itens. | Testes unitários verificam tags, resultados e ausência de token/valor no evento de requisição; teste integrado verifica a autorização do Prometheus; scripts k6 materializam os limites de p95 definidos pelo candidato no `SPEC.md`. |
 
 ## 3. Erros e correções
 
@@ -174,6 +175,16 @@ Na primeira liquidação executada pela SPA real, o cliente recebeu uma falha de
 - **Detecção:** o Playwright concluiu cadastro e seleção, porém exibiu o retry de rede na liquidação; a revisão do preflight mostrou o cabeçalho ausente na configuração.
 - **Correção:** `Idempotency-Key` foi incluído explicitamente nos cabeçalhos CORS permitidos e o teste de preflight passou a exigi-lo.
 - **Evidências:** [`SecurityConfiguration.java`](./src/main/java/com/credit/engine/srm/config/security/SecurityConfiguration.java), [`SrmApplicationTests.java`](./src/test/java/com/credit/engine/srm/SrmApplicationTests.java) e [`operations.spec.ts`](./frontend/e2e/operations.spec.ts).
+
+### 3.14 Cenário de carga sem taxa controlada
+
+Na primeira execução do teste de carga de simulação, a IA configurou dez usuários virtuais em loop aberto, sem limitar a taxa de chegada.
+
+- **Erro:** o cenário gerou 145.810 simulações em 30 segundos, aproximadamente 2.500 requisições/s, saturou a escrita de logs do container e terminou com dez timeouts. O p95 de 3,4 ms considerava somente respostas concluídas e, isoladamente, ocultava a sobrecarga.
+- **Impacto potencial:** a aferição poderia ser apresentada como aprovada pelo p95 mesmo contendo falhas técnicas e representando uma carga diferente da referência escolhida.
+- **Detecção:** o próprio threshold `http_req_failed=0` do k6 falhou e o graceful stop registrou os timeouts reproduzíveis.
+- **Correção:** o cenário passou a usar `constant-arrival-rate` de 50 simulações/s, VUs pré-alocados, threshold de zero requisições falhas e zero iterações descartadas. A repetição processou 1.501 simulações com p95 de 5,82 ms, sem falhas ou descartes.
+- **Evidência:** [`pricing-simulation.js`](./performance/pricing-simulation.js) e o limite definido no [`SPEC.md`](./SPEC.md).
 
 ## 4. O que não foi delegado
 
