@@ -6,6 +6,11 @@ import com.credit.engine.srm.receivables.CreateAssignorUseCase;
 import com.credit.engine.srm.receivables.CreateReceivableCommand;
 import com.credit.engine.srm.receivables.CreateReceivableUseCase;
 import com.credit.engine.srm.receivables.ReceivableView;
+import com.credit.engine.srm.receivables.ReceivableForSettlement;
+import com.credit.engine.srm.receivables.ReceivableNotFoundException;
+import com.credit.engine.srm.receivables.ReceivableSettlementUseCase;
+import com.credit.engine.srm.receivables.ReceivableStatusView;
+import com.credit.engine.srm.receivables.ReceivableUnavailableException;
 import com.credit.engine.srm.receivables.SearchAssignorsQuery;
 import com.credit.engine.srm.receivables.SearchAssignorsUseCase;
 import com.credit.engine.srm.receivables.SearchReceivablesQuery;
@@ -17,6 +22,7 @@ import com.credit.engine.srm.shared.Currency;
 import com.credit.engine.srm.shared.Money;
 import com.credit.engine.srm.shared.PageResult;
 import com.credit.engine.srm.shared.ReceivableId;
+import com.credit.engine.srm.shared.SettlementId;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,7 +38,8 @@ public class ReceivablesService implements
         CreateAssignorUseCase,
         SearchAssignorsUseCase,
         CreateReceivableUseCase,
-        SearchReceivablesUseCase {
+        SearchReceivablesUseCase,
+        ReceivableSettlementUseCase {
 
     private static final int MAX_PAGE_SIZE = 100;
 
@@ -114,6 +121,41 @@ public class ReceivablesService implements
         Objects.requireNonNull(query, "query is required");
         validatePage(query.page(), query.size());
         return receivables.search(query.assignorId(), query.status(), query.page(), query.size());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ReceivableForSettlement findAvailable(ReceivableId receivableId) {
+        Receivable receivable = receivables.findById(receivableId)
+                .orElseThrow(ReceivableNotFoundException::new);
+        if (receivable.status() != com.credit.engine.srm.receivables.internal.ReceivableStatus.AVAILABLE) {
+            throw new ReceivableUnavailableException();
+        }
+        AssignorView assignor = assignors.findById(receivable.assignorId())
+                .orElseThrow(AssignorNotFoundException::new);
+        return new ReceivableForSettlement(
+                receivable.id(),
+                receivable.assignorId(),
+                assignor.document(),
+                assignor.legalName(),
+                receivable.type(),
+                receivable.faceValue(),
+                receivable.dueDate());
+    }
+
+    @Override
+    @Transactional
+    public void markSettled(
+            ReceivableId receivableId,
+            SettlementId settlementId,
+            Instant settledAt) {
+        Receivable receivable = receivables.findById(receivableId)
+                .orElseThrow(ReceivableNotFoundException::new);
+        try {
+            receivables.markSettled(receivable, settlementId, settledAt);
+        } catch (IllegalStateException exception) {
+            throw new ReceivableUnavailableException(exception.getMessage(), exception);
+        }
     }
 
     private static void validatePage(int page, int size) {
