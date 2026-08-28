@@ -35,6 +35,16 @@ No extrato, `from` e `to` são datas inclusivas na zona `America/Sao_Paulo`. O p
 
 O Swagger exige um Bearer token válido, assim como as rotas de negócio.
 
+### Fluxos da aplicação web
+
+- **Simulação:** calcula automaticamente após a validação do formulário, sem enviar taxa, spread ou câmbio como entrada.
+- **Cedentes e recebíveis:** cadastra e consulta os dados operacionais, incluindo validação local de CNPJ, valor e vencimento.
+- **Liquidação:** seleciona até 100 recebíveis disponíveis e define BRL ou USD por item. Uma falha preserva a chave idempotente para repetição segura da mesma tentativa.
+- **Extrato:** consulta snapshots imutáveis com filtros e paginação executados no servidor.
+- **Câmbio:** aparece somente para `ADMIN` e permite capturar um novo snapshot USD/BRL do provedor mockado.
+
+O frontend usa contratos TypeScript manuais e facades por feature. Tokens permanecem somente na memória do adapter Keycloak; nenhum resultado de pricing é calculado ou aceito como autoridade no navegador.
+
 ### Usuários de demonstração
 
 | Usuário | Senha | Perfil |
@@ -77,7 +87,7 @@ npm run build
 npm run e2e
 ```
 
-O E2E pressupõe que o Compose esteja em execução e usa Chromium para validar login, autorização, responsividade e os golden cases financeiros pela interface real.
+O E2E pressupõe que o Compose esteja em execução e usa Chromium para validar login, autorização, responsividade, golden cases financeiros, cadastro, liquidação, extrato e atualização cambial pela interface real.
 
 ## Decisões e arquitetura
 

@@ -38,6 +38,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
@@ -139,6 +140,11 @@ class SrmApplicationTests {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.content[0].document").value("12345678000195"))
 				.andExpect(jsonPath("$.totalElements").value(1));
+
+		mockMvc.perform(get("/api/v1/assignors")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR"))))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.content[*].document", hasItem("12345678000195")));
 
 		mockMvc.perform(get("/api/v1/receivables")
 					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
@@ -416,9 +422,13 @@ class SrmApplicationTests {
 	void shouldApplyCorsAllowlistAndGenerateCorrelationId() throws Exception {
 		mockMvc.perform(options("/api/v1/pricing/simulations")
 					.header("Origin", "http://localhost:4200")
-					.header("Access-Control-Request-Method", "POST"))
+					.header("Access-Control-Request-Method", "POST")
+					.header("Access-Control-Request-Headers", "authorization,idempotency-key"))
 				.andExpect(status().isOk())
-				.andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:4200"));
+				.andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:4200"))
+				.andExpect(header().string(
+						"Access-Control-Allow-Headers",
+						org.hamcrest.Matchers.containsStringIgnoringCase("Idempotency-Key")));
 
 		mockMvc.perform(options("/api/v1/pricing/simulations")
 					.header("Origin", "https://not-allowed.example")

@@ -48,6 +48,8 @@ flowchart LR
 ### Responsabilidades dos contêineres
 
 - O Angular mantém o token apenas durante a sessão, aplica guards por perfil e nunca calcula valores financeiros autoritativos.
+- As features Angular são carregadas por rota e mantêm estado local em facades com signals: simulação, cedentes, recebíveis, liquidação, extrato e câmbio. Filtros e paginação permanecem server-side.
+- Na liquidação, o cliente envia somente identificadores e moeda. A mesma tentativa reaproveita a chave idempotente após falha; alteração do lote ou resposta concluída inicia uma nova tentativa.
 - O backend recalcula todas as simulações e liquidações, valida o JWT e concentra as regras de negócio.
 - O PostgreSQL assegura constraints de cedentes, recebíveis, snapshots cambiais, idempotência e registros imutáveis de liquidação; `@Version` e unicidade por recebível protegem disputas concorrentes, enquanto índices compostos sustentam o extrato.
 - O Keycloak administra usuários e credenciais; o motor de crédito consome somente identidade e perfis.

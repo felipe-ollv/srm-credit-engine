@@ -35,6 +35,8 @@ describe('AuthService', () => {
     expect(service.displayName()).toBe('Operador SRM');
     expect(service.applicationRoles()).toEqual(['OPERATOR']);
     expect(service.hasApplicationRole()).toBe(true);
+    expect(service.hasRole('OPERATOR')).toBe(true);
+    expect(service.hasRole('ADMIN')).toBe(false);
   });
 
   it('refreshes the in-memory token before returning it', async () => {

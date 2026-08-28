@@ -8,3 +8,10 @@ export const applicationRoleGuard: CanActivateFn = () => {
     ? true
     : inject(Router).createUrlTree(['/sem-acesso']);
 };
+
+export const adminRoleGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  return auth.hasRole('ADMIN')
+    ? true
+    : inject(Router).createUrlTree(['/sem-acesso']);
+};
