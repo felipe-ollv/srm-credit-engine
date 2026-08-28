@@ -27,6 +27,13 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.matchesPattern;
@@ -47,6 +54,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class SrmApplicationTests {
 
 	private static final Instant FIXED_NOW = Instant.parse("2026-08-26T19:00:00Z");
+	private static final AtomicInteger DOCUMENT_SEQUENCE = new AtomicInteger();
 
 	@Container
 	@ServiceConnection
@@ -80,7 +88,7 @@ class SrmApplicationTests {
 				Integer.class
 		);
 
-		assertThat(appliedMigrations).isEqualTo(3);
+		assertThat(appliedMigrations).isEqualTo(4);
 		assertThat(openApi.getInfo().getTitle()).isEqualTo("SRM Credit Engine API");
 		assertThat(openApi.getComponents().getSecuritySchemes()).containsKey("bearerAuth");
 	}
@@ -448,10 +456,305 @@ class SrmApplicationTests {
 				.andExpect(jsonPath("$.paths['/api/v1/receivables'].get").exists())
 				.andExpect(jsonPath("$.paths['/api/v1/exchange-rates/refresh'].post").exists())
 				.andExpect(jsonPath("$.paths['/api/v1/exchange-rates/current'].get").exists())
+				.andExpect(jsonPath("$.paths['/api/v1/settlement-batches'].post").exists())
 				.andExpect(jsonPath("$.paths['/api/v1/pricing/simulations'].post.responses['503']").exists())
 				.andExpect(jsonPath("$.components.schemas.ApiProblem.properties.correlationId").exists())
 				.andExpect(jsonPath("$.components.schemas.ApiProblem.properties.fieldErrors").exists())
 				.andExpect(jsonPath("$.components.securitySchemes.bearerAuth.scheme").value("bearer"));
+	}
+
+	@Test
+	void shouldSettleMixedBatchAndReplayPersistedResponse() throws Exception {
+		UUID brlReceivable = createReceivable("DUPLICATA_MERCANTIL", "100000.00", LocalDate.parse("2026-11-26"));
+		UUID usdReceivable = createReceivable("DUPLICATA_MERCANTIL", "100000.00", LocalDate.parse("2026-11-26"));
+		String body = settlementRequest(brlReceivable, "BRL", usdReceivable, "USD");
+
+		String original = mockMvc.perform(post("/api/v1/settlement-batches")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.header("Idempotency-Key", "mixed-batch-001")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(body))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("COMPLETED"))
+				.andExpect(jsonPath("$.items[0].status").value("SUCCESS"))
+				.andExpect(jsonPath("$.items[0].settlement.assignorLegalName")
+						.value("Settlement Test Assignor"))
+				.andExpect(jsonPath("$.items[0].settlement.presentValue.amount").value("92859.94"))
+				.andExpect(jsonPath("$.items[0].settlement.exchangeRate").value(nullValue()))
+				.andExpect(jsonPath("$.items[1].status").value("SUCCESS"))
+				.andExpect(jsonPath("$.items[1].settlement.payment.amount").value("17094.67"))
+				.andExpect(jsonPath("$.items[1].settlement.exchangeRate.rate").value("5.4321"))
+				.andReturn().getResponse().getContentAsString();
+
+		String replay = mockMvc.perform(post("/api/v1/settlement-batches")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))
+					.header("Idempotency-Key", "mixed-batch-001")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(body))
+				.andExpect(status().isOk())
+				.andReturn().getResponse().getContentAsString();
+
+		assertThat(replay).isEqualTo(original);
+		assertThat(countSettlements(brlReceivable, usdReceivable)).isEqualTo(2);
+		assertThat(jdbcTemplate.queryForObject(
+				"select count(*) from receivables where id in (?, ?) and status = 'SETTLED'",
+				Integer.class, brlReceivable, usdReceivable)).isEqualTo(2);
+	}
+
+	@Test
+	void shouldRejectChangedPayloadAndInvalidEnvelopeWithoutEffects() throws Exception {
+		UUID first = createReceivable("CHEQUE_PRE_DATADO", "25000.00", LocalDate.parse("2026-10-26"));
+		UUID second = createReceivable("CHEQUE_PRE_DATADO", "25000.00", LocalDate.parse("2026-10-26"));
+
+		mockMvc.perform(post("/api/v1/settlement-batches")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.header("Idempotency-Key", "payload-conflict-001")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(settlementRequest(first, "BRL")))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(post("/api/v1/settlement-batches")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.header("Idempotency-Key", "payload-conflict-001")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(settlementRequest(second, "BRL")))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("IDEMPOTENCY_PAYLOAD_CONFLICT"));
+
+		mockMvc.perform(post("/api/v1/settlement-batches")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.header("Idempotency-Key", "duplicate-envelope-001")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(settlementRequest(second, "BRL", second, "USD")))
+				.andExpect(status().isUnprocessableContent())
+				.andExpect(jsonPath("$.code").value("SETTLEMENT_BATCH_INVALID"));
+
+		assertThat(jdbcTemplate.queryForObject(
+				"select count(*) from settlement_idempotency where idempotency_key = 'duplicate-envelope-001'",
+				Integer.class)).isZero();
+	}
+
+	@Test
+	void shouldKeepBrlSuccessWhenUsdRateIsUnavailable() throws Exception {
+		jdbcTemplate.update("delete from exchange_rates");
+		UUID brlReceivable = createReceivable("DUPLICATA_MERCANTIL", "100000.00", LocalDate.parse("2026-11-26"));
+		UUID usdReceivable = createReceivable("DUPLICATA_MERCANTIL", "100000.00", LocalDate.parse("2026-11-26"));
+
+		mockMvc.perform(post("/api/v1/settlement-batches")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.header("Idempotency-Key", "partial-fx-001")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(settlementRequest(brlReceivable, "BRL", usdReceivable, "USD")))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.items[0].status").value("SUCCESS"))
+				.andExpect(jsonPath("$.items[1].status").value("FX_RATE_UNAVAILABLE"))
+				.andExpect(jsonPath("$.items[1].code").value("FX_RATE_UNAVAILABLE"));
+
+		assertThat(countSettlements(brlReceivable, usdReceivable)).isEqualTo(1);
+		assertThat(jdbcTemplate.queryForObject(
+				"select status from receivables where id = ?",
+				String.class, usdReceivable)).isEqualTo("AVAILABLE");
+	}
+
+	@Test
+	void shouldAllowExactlyOneConcurrentSettlement() throws Exception {
+		UUID receivable = createReceivable("CHEQUE_PRE_DATADO", "25000.00", LocalDate.parse("2026-10-26"));
+		CountDownLatch start = new CountDownLatch(1);
+		try (var executor = Executors.newFixedThreadPool(2)) {
+			Future<String> first = executor.submit(() -> concurrentSettlement(start, receivable, "concurrent-a"));
+			Future<String> second = executor.submit(() -> concurrentSettlement(start, receivable, "concurrent-b"));
+			start.countDown();
+			String firstResponse = first.get();
+			String secondResponse = second.get();
+
+			assertThat(List.of(firstResponse, secondResponse))
+					.filteredOn(response -> response.contains("\"status\":\"SUCCESS\""))
+					.hasSize(1);
+			assertThat(List.of(firstResponse, secondResponse))
+					.filteredOn(response -> response.contains("\"status\":\"CONFLICT\""))
+					.hasSize(1);
+		}
+		assertThat(countSettlements(receivable)).isEqualTo(1);
+	}
+
+	@Test
+	void shouldProtectSettlementBatchAndRejectInvalidKey() throws Exception {
+		UUID receivable = createReceivable("DUPLICATA_MERCANTIL", "1000.00", LocalDate.parse("2026-11-26"));
+		mockMvc.perform(post("/api/v1/settlement-batches")
+					.header("Idempotency-Key", "auth-required")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(settlementRequest(receivable, "BRL")))
+				.andExpect(status().isUnauthorized());
+
+		mockMvc.perform(post("/api/v1/settlement-batches")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(settlementRequest(receivable, "BRL")))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("REQUEST_INVALID"));
+
+		mockMvc.perform(post("/api/v1/settlement-batches")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.header("Idempotency-Key", "invalid key with spaces")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(settlementRequest(receivable, "BRL")))
+				.andExpect(status().isUnprocessableContent());
+	}
+
+	@Test
+	void shouldRejectBatchOutsideItemLimitBeforeClaimingIdempotency() throws Exception {
+		mockMvc.perform(post("/api/v1/settlement-batches")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.header("Idempotency-Key", "empty-batch-001")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("{\"items\":[]}"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("REQUEST_INVALID"));
+
+		String overLimitItems = java.util.stream.IntStream.range(0, 101)
+				.mapToObj(ignored -> "{\"receivableId\":\"" + UUID.randomUUID()
+						+ "\",\"paymentCurrency\":\"BRL\"}")
+				.collect(java.util.stream.Collectors.joining(","));
+		mockMvc.perform(post("/api/v1/settlement-batches")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))
+					.header("Idempotency-Key", "over-limit-batch-001")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("{\"items\":[" + overLimitItems + "]}"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("REQUEST_INVALID"));
+
+		assertThat(jdbcTemplate.queryForObject(
+				"select count(*) from settlement_idempotency where idempotency_key in (?, ?)",
+				Integer.class,
+				"empty-batch-001",
+				"over-limit-batch-001")).isZero();
+	}
+
+	@Test
+	void shouldReturnConflictForIdempotencyKeyAlreadyInProgress() throws Exception {
+		UUID batchId = UUID.randomUUID();
+		UUID receivable = createReceivable("DUPLICATA_MERCANTIL", "1000.00", LocalDate.parse("2026-11-26"));
+		String body = settlementRequest(receivable, "BRL");
+		String requestHash = java.util.HexFormat.of().formatHex(
+				java.security.MessageDigest.getInstance("SHA-256").digest(
+						(receivable + ":BRL\n").getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+		jdbcTemplate.update("""
+				insert into settlement_batches (id, status, requested_at)
+				values (?, 'PROCESSING', ?)
+				""", batchId, asUtc(FIXED_NOW));
+		jdbcTemplate.update("""
+				insert into settlement_idempotency
+				    (idempotency_key, request_hash, batch_id, status, created_at)
+				values ('processing-key-001', ?, ?, 'PROCESSING', ?)
+				""", requestHash, batchId, asUtc(FIXED_NOW));
+
+		mockMvc.perform(post("/api/v1/settlement-batches")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.header("Idempotency-Key", "processing-key-001")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(body))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("IDEMPOTENCY_IN_PROGRESS"));
+	}
+
+	@Test
+	void shouldRollbackSettlementWhenReceivableUpdateFails() throws Exception {
+		UUID receivable = createReceivable("DUPLICATA_MERCANTIL", "1000.00", LocalDate.parse("2026-11-26"));
+		jdbcTemplate.execute("""
+				create function reject_receivable_settlement() returns trigger
+				language plpgsql as $$
+				begin
+				    if new.status = 'SETTLED' then
+				        raise exception 'forced receivable update failure';
+				    end if;
+				    return new;
+				end
+				$$
+				""");
+		jdbcTemplate.execute("""
+				create trigger reject_receivable_settlement_trigger
+				before update on receivables
+				for each row execute function reject_receivable_settlement()
+				""");
+		try {
+			mockMvc.perform(post("/api/v1/settlement-batches")
+						.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+						.header("Idempotency-Key", "rollback-item-001")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(settlementRequest(receivable, "BRL")))
+					.andExpect(status().isOk())
+					.andExpect(jsonPath("$.items[0].status").value("TECHNICAL_ERROR"))
+					.andExpect(jsonPath("$.items[0].code").value("SETTLEMENT_PERSISTENCE_FAILED"));
+		} finally {
+			jdbcTemplate.execute("drop trigger reject_receivable_settlement_trigger on receivables");
+			jdbcTemplate.execute("drop function reject_receivable_settlement()");
+		}
+
+		assertThat(countSettlements(receivable)).isZero();
+		assertThat(jdbcTemplate.queryForObject(
+				"select status from receivables where id = ?", String.class, receivable))
+				.isEqualTo("AVAILABLE");
+	}
+
+	private UUID createReceivable(String type, String faceValue, LocalDate dueDate) {
+		UUID assignorId = UUID.randomUUID();
+		UUID receivableId = UUID.randomUUID();
+		String document = "%014d".formatted(90_000_000L + DOCUMENT_SEQUENCE.incrementAndGet());
+		jdbcTemplate.update("""
+				insert into assignors (id, document, legal_name, created_at)
+				values (?, ?, ?, ?)
+				""", assignorId, document, "Settlement Test Assignor", asUtc(FIXED_NOW));
+		jdbcTemplate.update("""
+				insert into receivables
+				    (id, assignor_id, type, face_value, due_date, registration_date,
+				     status, version, created_at)
+				values (?, ?, ?, ?::numeric, ?, ?, 'AVAILABLE', 0, ?)
+				""",
+				receivableId,
+				assignorId,
+				type,
+				faceValue,
+				dueDate,
+				LocalDate.parse("2026-08-26"),
+				asUtc(FIXED_NOW));
+		return receivableId;
+	}
+
+	private int countSettlements(UUID... receivableIds) {
+		String placeholders = String.join(",", java.util.Collections.nCopies(receivableIds.length, "?"));
+		return jdbcTemplate.queryForObject(
+				"select count(*) from settlements where receivable_id in (" + placeholders + ")",
+				Integer.class,
+				(Object[]) receivableIds);
+	}
+
+	private String concurrentSettlement(
+			CountDownLatch start,
+			UUID receivableId,
+			String idempotencyKey) throws Exception {
+		start.await();
+		return mockMvc.perform(post("/api/v1/settlement-batches")
+					.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+					.header("Idempotency-Key", idempotencyKey)
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(settlementRequest(receivableId, "BRL")))
+				.andExpect(status().isOk())
+				.andReturn().getResponse().getContentAsString();
+	}
+
+	private static String settlementRequest(Object... receivableAndCurrencyPairs) {
+		StringBuilder items = new StringBuilder();
+		for (int index = 0; index < receivableAndCurrencyPairs.length; index += 2) {
+			if (!items.isEmpty()) {
+				items.append(',');
+			}
+			items.append("{\"receivableId\":\"")
+					.append(receivableAndCurrencyPairs[index])
+					.append("\",\"paymentCurrency\":\"")
+					.append(receivableAndCurrencyPairs[index + 1])
+					.append("\"}");
+		}
+		return "{\"items\":[" + items + "]}";
 	}
 
 	private static String request(

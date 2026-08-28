@@ -37,6 +37,8 @@ class SettlementTest {
                 settlementId,
                 receivableId,
                 assignorId,
+                "12345678000195",
+                "Assignor Test Ltda.",
                 ReceivableType.DUPLICATA_MERCANTIL,
                 DUE_DATE,
                 pricingResult,
@@ -45,6 +47,8 @@ class SettlementTest {
         assertThat(settlement.id()).isEqualTo(settlementId);
         assertThat(settlement.receivableId()).isEqualTo(receivableId);
         assertThat(settlement.assignorId()).isEqualTo(assignorId);
+        assertThat(settlement.assignorDocument()).isEqualTo("12345678000195");
+        assertThat(settlement.assignorLegalName()).isEqualTo("Assignor Test Ltda.");
         assertThat(settlement.dueDate()).isEqualTo(DUE_DATE);
         assertThat(settlement.pricingResult()).isEqualTo(pricingResult);
         assertThat(settlement.settledAt()).isEqualTo(settledAt);
@@ -58,6 +62,8 @@ class SettlementTest {
                 SettlementId.newId(),
                 ReceivableId.newId(),
                 AssignorId.newId(),
+                "12345678000195",
+                "Assignor Test Ltda.",
                 ReceivableType.CHEQUE_PRE_DATADO,
                 DUE_DATE,
                 pricingResult,
@@ -69,6 +75,8 @@ class SettlementTest {
                 SettlementId.newId(),
                 ReceivableId.newId(),
                 AssignorId.newId(),
+                "12345678000195",
+                "Assignor Test Ltda.",
                 ReceivableType.DUPLICATA_MERCANTIL,
                 DUE_DATE,
                 pricingResult,
@@ -85,6 +93,8 @@ class SettlementTest {
                 SettlementId.newId(),
                 ReceivableId.newId(),
                 AssignorId.newId(),
+                "12345678000195",
+                "Assignor Test Ltda.",
                 ReceivableType.DUPLICATA_MERCANTIL,
                 DUE_DATE.plusMonths(1),
                 pricingResult,
