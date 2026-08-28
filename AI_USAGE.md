@@ -187,6 +187,16 @@ Na primeira execução do teste de carga de simulação, a IA configurou dez usu
 - **Correção:** o cenário passou a usar `constant-arrival-rate` de 50 simulações/s, VUs pré-alocados, threshold de zero requisições falhas e zero iterações descartadas. A repetição processou 1.501 simulações com p95 de 5,82 ms, sem falhas ou descartes.
 - **Evidência:** [`pricing-simulation.js`](./performance/pricing-simulation.js) e o limite definido no [`SPEC.md`](./SPEC.md).
 
+### 3.15 Teste de timeout dependente do escalonamento do runner
+
+O primeiro pipeline do PR final falhou embora a suíte tivesse passado localmente.
+
+- **Erro:** o teste gerado para comprovar três timeouts atrasava o envio dos headers e aguardava que três handlers fossem escalonados em uma janela fixa de um segundo.
+- **Impacto potencial:** falso negativo no CI, bloqueio do E2E e perda de confiança na suíte.
+- **Detecção:** o GitHub Actions registrou `shouldApplyReadTimeoutToEveryAttempt` como a única falha entre 82 testes; a exceção esperada após três tentativas já havia sido produzida, mas o latch temporal não terminou.
+- **Correção:** o servidor de teste passou a enviar headers imediatamente e atrasar somente o corpo. Assim, cada timeout continua real e uma tentativa só expira depois de ter sido contabilizada pelo servidor, sem espera posterior baseada no desempenho do runner.
+- **Evidência:** [`HttpExchangeRateProviderTest.java`](./src/test/java/com/credit/engine/srm/currency/internal/adapter/out/http/HttpExchangeRateProviderTest.java).
+
 ## 4. O que não foi delegado
 
 - A interpretação final das ambiguidades financeiras e a aceitação das premissas.

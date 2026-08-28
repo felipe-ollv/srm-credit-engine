@@ -13,15 +13,14 @@ import org.springframework.web.client.RestClient;
 
 import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -104,16 +103,16 @@ class HttpExchangeRateProviderTest {
     @Test
     void shouldApplyReadTimeoutToEveryAttempt() throws Exception {
         AtomicInteger requests = new AtomicInteger();
-        CountDownLatch attemptsReceived = new CountDownLatch(3);
+        byte[] responseBody = "{}".getBytes(StandardCharsets.UTF_8);
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             server.setExecutor(executor);
             server.createContext("/rates/USD/BRL", exchange -> {
                 requests.incrementAndGet();
-                attemptsReceived.countDown();
                 try {
-                    Thread.sleep(200);
-                    exchange.sendResponseHeaders(200, -1);
+                    exchange.sendResponseHeaders(200, responseBody.length);
+                    Thread.sleep(750);
+                    exchange.getResponseBody().write(responseBody);
                 } catch (InterruptedException exception) {
                     Thread.currentThread().interrupt();
                 } finally {
@@ -125,7 +124,7 @@ class HttpExchangeRateProviderTest {
             CurrencyProperties properties = new CurrencyProperties(
                     "http://localhost:" + server.getAddress().getPort(),
                     Duration.ofMillis(100),
-                    Duration.ofMillis(25),
+                    Duration.ofMillis(250),
                     3,
                     Duration.ofMillis(1),
                     Duration.ofHours(24),
@@ -147,7 +146,6 @@ class HttpExchangeRateProviderTest {
             assertThatThrownBy(provider::fetchUsdToBrl)
                     .isInstanceOf(ExchangeRateProviderUnavailableException.class)
                     .hasMessage("Exchange rate provider is unavailable after 3 attempts");
-            assertThat(attemptsReceived.await(1, TimeUnit.SECONDS)).isTrue();
             assertThat(requests).hasValue(3);
         } finally {
             server.stop(0);
