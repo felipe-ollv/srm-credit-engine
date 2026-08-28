@@ -22,6 +22,10 @@ export class AuthService {
     return this.applicationRoles().length > 0;
   }
 
+  hasRole(role: ApplicationRole): boolean {
+    return this.applicationRoles().includes(role);
+  }
+
   async freshAccessToken(): Promise<string> {
     try {
       await this.keycloak.updateToken(30);
