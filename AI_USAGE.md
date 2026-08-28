@@ -33,6 +33,7 @@ Este registro resume as interações relevantes; ele não reproduz o histórico 
 | Currency engine | Substituir o câmbio configurado por snapshots imutáveis no PostgreSQL, integrar um provedor HTTP mockado, aplicar timeout/retry e limitar o refresh a `ADMIN`. | Módulo `currency` hexagonal, migration V3, adapter HTTP, WireMock no Compose, APIs de consulta/refresh e integração do pricing à API pública de câmbio. | Testes unitários de vigência e retry, timeout HTTP reproduzível, PostgreSQL real via Testcontainers, autorização/OpenAPI, Compose saudável e consulta direta ao histórico Flyway e ao snapshot persistido. |
 | Liquidação em lote | Implementar lotes de 1–100 itens com um instante e um snapshot cambial, transação `REQUIRES_NEW` por item, idempotência persistida e conflito concorrente sem aceitar valores financeiros do cliente. | Migration V4, API `POST /api/v1/settlement-batches`, snapshots cadastral e financeiro imutáveis, hash ordenado do payload, replay da resposta persistida e integração pelas APIs públicas dos módulos. | PostgreSQL real via Testcontainers, teste de rollback forçado, duas liquidações simultâneas, lote misto BRL/USD, ausência cambial, payload divergente, chave em processamento, limites do envelope e `ApplicationModules.verify()`. |
 | Extrato analítico | Implementar a consulta paginada sem carregar aggregates JPA, com filtros combináveis, valores financeiros textuais e ordenação limitada a campos conhecidos. | Módulo `reporting`, API `GET /api/v1/settlements`, read model completo via `JdbcClient`, datas inclusivas de São Paulo e migration V5 com índices dedicados. | Testes HTTP de filtros isolados e combinados, paginação, ordenação, segurança e limites; `EXPLAIN` em PostgreSQL real confirmou o índice composto e `ApplicationModules.verify()` protegeu a independência do módulo. |
+| Operações no frontend | Completar somente os fluxos suportados pelos contratos backend, mantendo cálculo financeiro autoritativo no servidor, tokens em memória, paginação server-side e retry idempotente. | Rotas lazy para cedentes, recebíveis, liquidação, extrato e câmbio; facades locais com signals; chave idempotente preservada em falhas e renovada após mudança ou conclusão; navegação administrativa condicionada ao perfil. | TypeScript estrito, lint, testes de CNPJ, contratos HTTP, filtros, paginação, perfis e ciclo da chave; build limpo em Node 24 e Playwright contra Compose real cobrindo o fluxo operacional e o refresh de câmbio. |
 
 ## 3. Erros e correções
 
@@ -153,6 +154,26 @@ Na primeira execução de um lote misto, a IA repassou o snapshot USD/BRL do lot
 - **Detecção:** o teste HTTP do lote misto esperava sucesso nos dois itens e recebeu `RULE_VIOLATION` no item BRL.
 - **Correção:** o snapshot continua sendo selecionado uma única vez, mas é aplicado somente aos comandos em USD; comandos BRL recebem câmbio ausente.
 - **Evidências:** [`SettlementItemTransaction.java`](./src/main/java/com/credit/engine/srm/settlements/internal/application/SettlementItemTransaction.java) e [`SrmApplicationTests.java`](./src/test/java/com/credit/engine/srm/SrmApplicationTests.java).
+
+### 3.12 Consulta sem filtro inferida como `bytea`
+
+Ao integrar a tela de recebíveis ao Compose real, a IA chamou a listagem de cedentes sem termo de busca e o E2E não encontrou nenhuma opção no formulário.
+
+- **Erro:** a query JPQL usava o mesmo parâmetro nulo em `:query is null` e em `lower(concat(...))`; com Hibernate 7 e PostgreSQL, o bind foi inferido como `bytea` e produziu `function lower(bytea) does not exist`.
+- **Impacto potencial:** `GET /api/v1/assignors` falhava com `500` quando o filtro era omitido, impedindo o cadastro de recebíveis pela interface.
+- **Detecção:** o Playwright parou ao abrir o seletor vazio e os logs do container mostraram o SQL e o erro de tipo reproduzível.
+- **Correção:** o adapter passou a usar `findAll(Pageable)` quando não há filtro e mantém a query textual somente para buscas preenchidas; um teste HTTP cobre os dois caminhos.
+- **Evidências:** [`JpaAssignorRepositoryAdapter.java`](./src/main/java/com/credit/engine/srm/receivables/internal/adapter/out/persistence/JpaAssignorRepositoryAdapter.java), [`SrmApplicationTests.java`](./src/test/java/com/credit/engine/srm/SrmApplicationTests.java) e [`operations.spec.ts`](./frontend/e2e/operations.spec.ts).
+
+### 3.13 Cabeçalho idempotente ausente no CORS
+
+Na primeira liquidação executada pela SPA real, o cliente recebeu uma falha de rede antes que o lote alcançasse o controller.
+
+- **Erro:** a allow-list CORS criada para a simulação não foi ampliada quando `Idempotency-Key` se tornou obrigatório na API de lotes.
+- **Impacto potencial:** a liquidação funcionava em testes HTTP diretos, mas navegadores bloqueavam o preflight e nenhum operador conseguia enviar o lote pelo frontend.
+- **Detecção:** o Playwright concluiu cadastro e seleção, porém exibiu o retry de rede na liquidação; a revisão do preflight mostrou o cabeçalho ausente na configuração.
+- **Correção:** `Idempotency-Key` foi incluído explicitamente nos cabeçalhos CORS permitidos e o teste de preflight passou a exigi-lo.
+- **Evidências:** [`SecurityConfiguration.java`](./src/main/java/com/credit/engine/srm/config/security/SecurityConfiguration.java), [`SrmApplicationTests.java`](./src/test/java/com/credit/engine/srm/SrmApplicationTests.java) e [`operations.spec.ts`](./frontend/e2e/operations.spec.ts).
 
 ## 4. O que não foi delegado
 
